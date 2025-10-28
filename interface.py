@@ -1,10 +1,11 @@
 # app.py
-# Prompt-Plattform · Minimal lauffähiges Mockup (Use-Case · Ziel/Output · Stil & Ton)
+# Prompt-Plattform · Mockup (Use-Case · Ziel/Output · Stil & Ton)
+# Fix: st.radio statt st.select_radio + Untermenüs je Use-Case
 # Features: Live-Vorschau, JSON-Schema, Copy-Button, Download als .md/.json
-# Hinweis: Keine externen Keys nötig. Integration zu CustomGPT später über API/Webhook einhängbar.
 
 from __future__ import annotations
 import json
+import re
 from datetime import datetime
 from textwrap import dedent
 
@@ -25,7 +26,6 @@ st.set_page_config(
 # ------------------------- Styles (leicht & barrierearm) -------------------------
 CUSTOM_CSS = """
 <style>
-/* Warnleiste fixieren */
 .notice {
   position: sticky; top: 0; z-index: 999;
   background: #fff3cd; color: #7a5b00;
@@ -33,7 +33,6 @@ CUSTOM_CSS = """
   padding: .6rem .9rem; margin-bottom: .5rem;
   font-size: .95rem;
 }
-/* Karten-Optik */
 .block-card {
   border: 1px solid #eaeaea; border-radius: 14px; padding: 1rem;
   box-shadow: 0 1px 12px rgba(0,0,0,.03);
@@ -84,10 +83,14 @@ with st.sidebar:
 # ------------------------- Hauptlayout -------------------------
 col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
 
+def strip_leading_emoji(label: str) -> str:
+    # robust: trennt am ersten Leerzeichen; "🖋️ Schreiben" -> "Schreiben"
+    return label.split(" ", 1)[-1] if " " in label else label
+
 # ------------------------- Linke Spalte: Menüs -------------------------
 with col_left:
     st.subheader("🧩 Use-Case")
-    use_case = st.select_radio(
+    use_case = st.radio(
         "Was möchtest du tun?",
         options=[
             "🖋️ Schreiben",
@@ -99,6 +102,40 @@ with col_left:
         ],
         index=1,
     )
+
+    # kontextsensitive Untermenüs je Use-Case
+    uc_clean = strip_leading_emoji(use_case)
+    sub_use_case = None
+    if uc_clean == "Analysieren":
+        sub_use_case = st.selectbox(
+            "Analyse-Typ",
+            ["Textanalyse", "SWOT", "Ursache–Wirkung (Fishbone)", "Vergleich/Benchmark", "Risiko-Check"],
+            index=0
+        )
+    elif uc_clean == "Schreiben":
+        sub_use_case = st.selectbox(
+            "Schreib-Typ",
+            ["Zusammenfassung", "Brief/E-Mail", "Bericht/Protokoll", "Konzeptskizze", "Presse/News"],
+            index=0
+        )
+    elif uc_clean == "Coden":
+        sub_use_case = st.selectbox(
+            "Code-Aufgabe",
+            ["Snippet erklären", "Bug finden", "Refactoring", "Tests generieren", "Skelett erstellen"],
+            index=0
+        )
+    elif uc_clean == "Lernen/Erklären":
+        sub_use_case = st.selectbox(
+            "Lern-/Erklär-Typ",
+            ["Einfach erklären", "Glossar", "Lernziele + Quiz", "Schritt-für-Schritt-Anleitung"],
+            index=0
+        )
+    elif uc_clean == "Kreativideen":
+        sub_use_case = st.selectbox(
+            "Kreativ-Typ",
+            ["Brainstorming", "Metaphern finden", "Storyboard/Outline", "Titel/Claims"],
+            index=0
+        )
 
     st.markdown('<div class="block-card">', unsafe_allow_html=True)
     st.subheader("🎯 Ziel / Output")
@@ -159,13 +196,12 @@ with col_mid:
 # ------------------------- Prompt-Generator -------------------------
 def build_prompt() -> str:
     lang_hint = "deutsch" if lang == "Deutsch" else "englisch"
-    use_case_clean = use_case.split(" ", 1)[-1]  # Emoji entfernen
+    use_case_clean = strip_leading_emoji(use_case)
+    sub_uc_line = f"Untertyp: {sub_use_case}\n" if sub_use_case else ""
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Strukturhinweise
     structure_lines = "\n".join([f"- {s}" for s in structure]) if structure else "- (freie Struktur)"
 
-    # Qualitaetszusätze
     qc_lines = []
     if qc_facts: qc_lines.append("• Prüfe Aussagen auf Plausibilität und kennzeichne unsichere Stellen.")
     if qc_bias:  qc_lines.append("• Weisen auf mögliche Verzerrungen/Bias hin.")
@@ -176,7 +212,6 @@ def build_prompt() -> str:
     audience_line = f"Zielgruppe: {audience}\n" if audience else ""
     constraints_line = f"Rahmen/Muss-Kriterien:\n{constraints.strip()}\n\n" if constraints.strip() else ""
 
-    # Outputformat-Hinweis
     of_hint = {
         "Markdown": "Antworte in sauberem Markdown.",
         "Reiner Text": "Antworte als Klartext ohne Markdown.",
@@ -186,7 +221,7 @@ def build_prompt() -> str:
 
     prompt = dedent(f"""
     Du bist ein Assistenzsystem für **{use_case_clean}**.
-    {persona_line}{audience_line}Sprache: {lang_hint}. Tonfall: {tone}. Struktur: {rigor}. Länge: {length}.
+    {sub_uc_line}{persona_line}{audience_line}Sprache: {lang_hint}. Tonfall: {tone}. Struktur: {rigor}. Länge: {length}.
     Ziel/Output: **{goal}**.
     {of_hint}
 
@@ -215,7 +250,8 @@ def build_json_schema(prompt_text: str) -> dict:
             "format": form,
         },
         "profile": {
-            "use_case": use_case,
+            "use_case": strip_leading_emoji(use_case),
+            "sub_use_case": sub_use_case,
             "goal": goal,
             "tone": tone,
             "rigor": rigor,
@@ -293,7 +329,7 @@ with colC:
 with colD:
     st.caption("→ API-Hook zu CustomGPT/Assistants kann hier eingehängt werden (POST an Endpoint, Bearer-Token).")
 
-# ------------------------- Hinweise zur Integration (ausgegeben unterhalb) -------------------------
+# ------------------------- Hinweise zur Integration -------------------------
 with st.expander("⚙️ Integration zu CustomGPT/Assistants – Platzhalter (How-To)"):
     st.markdown(dedent("""
     **Option A – OpenAI Assistants API (Serverseitig):**
