@@ -1,4 +1,4 @@
-# app.py — Prompt-Plattform (abhängige Menüs + Highlight für optionale Felder/Checkboxen/Slider + Auto-Dateiname + Reset)
+# app.py — Prompt-Plattform (abhängige Menüs + Highlight bei Bearbeitung + Reset ohne Callback-rerun)
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -7,17 +7,19 @@ import streamlit as st
 
 st.set_page_config(page_title="🧭 Prompt-Plattform", page_icon="🧭", layout="wide")
 
-# ---------- Style ----------
+# ---------- Style: blassgrüner Hintergrund für "bearbeitet" ----------
 HIGHLIGHT_CSS = """
 <style>
 .optfield {
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
-  background-color: #f6fdf6; /* sehr blassgrün */
+  background-color: #f6fdf6;   /* sehr blassgrün */
   border: 1px solid #cde6cd;
   margin-bottom: 0.25rem;
 }
-.optfield .stSlider, .optfield .stCheckbox { background-color: transparent !important; }
+.optfield textarea, .optfield input, .optfield select {
+  background-color: #f6fdf6 !important;
+}
 </style>
 """
 st.markdown(HIGHLIGHT_CSS, unsafe_allow_html=True)
@@ -43,10 +45,14 @@ DEFAULTS = {
     "qc_dp": False,
 }
 
-def reset_state():
+def _init_defaults_once():
     for k, v in DEFAULTS.items():
-        st.session_state[k] = v
-    st.rerun()
+        st.session_state.setdefault(k, v)
+_init_defaults_once()
+
+# Falls vorher ein Reset markiert wurde: Flag löschen (ohne rerun)
+if st.session_state.get("_reset_performed"):
+    st.session_state["_reset_performed"] = False
 
 # ---------- Dictionaries ----------
 UC_LABEL = {
@@ -57,7 +63,6 @@ UC_LABEL = {
     "kreativ": "🎨 Kreativideen",
     "sonstiges": "🧪 Sonstiges",
 }
-
 UC_SUBTYPES = {
     "analysieren": ["Textanalyse", "SWOT", "Vergleich/Benchmark", "Risiko-Check"],
     "schreiben":   ["Zusammenfassung", "Bericht/Protokoll", "Konzeptskizze"],
@@ -65,7 +70,6 @@ UC_SUBTYPES = {
     "lernen":      ["Einfach erklären", "Quiz", "Glossar"],
     "kreativ":     ["Brainstorming", "Metaphern finden", "Titel/Claims"],
 }
-
 GOALS_BY_UC = {
     "analysieren": ["SWOT-Analyse", "Benchmark", "Risiko-Check", "Lessons Learned", "Ursache–Wirkung"],
     "schreiben":   ["Interviewleitfaden", "Konzeptskizze", "Checkliste", "Bericht/Protokoll"],
@@ -74,7 +78,6 @@ GOALS_BY_UC = {
     "kreativ":     ["Brainstorming-Liste", "Storyboard", "Titel/Claims", "Metaphern/Analogien"],
     "sonstiges":   ["Freiform"],
 }
-
 GOAL_SUBTYPES = {
     "Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"],
     "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"],
@@ -97,59 +100,51 @@ GOAL_SUBTYPES = {
     "Metaphern/Analogien": ["3 starke Metaphern", "Pro/Contra je Metapher"],
     "Bericht/Protokoll": ["Kurzprotokoll", "Vollprotokoll"],
 }
-
-FORMAT_LABEL = {
-    "markdown": "Markdown",
-    "text": "Reiner Text",
-    "json": "JSON",
-    "table": "Tabelle (MD)"
-}
+FORMAT_LABEL = {"markdown":"Markdown", "text":"Reiner Text", "json":"JSON", "table":"Tabelle (MD)"}
 
 def keep_or_default(current: str | None, options: list[str]) -> int:
-    if not options:
-        return 0
-    if current in options:
-        return options.index(current)
-    return 0
+    if not options: return 0
+    return options.index(current) if current in options else 0
 
 # ---------- Sidebar ----------
 with st.sidebar:
     st.header("🧭 Navigation")
-    lang = st.radio("Sprache", ["de", "en"], index=0,
-                    key="lang",
-                    format_func=lambda x: "Deutsch" if x=="de" else "Englisch")
-    out_format = st.selectbox("Output-Format", list(FORMAT_LABEL.keys()), index=0,
-                              key="out_format",
-                              format_func=lambda x: FORMAT_LABEL[x])
-    length = st.select_slider("Länge", options=["ultrakurz","kurz","mittel","lang","sehr lang"],
-                              value=DEFAULTS["length"], key="length")
+    st.radio("Sprache", ["de", "en"],
+             index=keep_or_default(st.session_state.lang, ["de","en"]),
+             key="lang", format_func=lambda x: "Deutsch" if x=="de" else "Englisch")
+    st.selectbox("Output-Format", list(FORMAT_LABEL.keys()),
+                 index=keep_or_default(st.session_state.out_format, list(FORMAT_LABEL.keys())),
+                 key="out_format", format_func=lambda x: FORMAT_LABEL[x])
+    st.select_slider("Länge", options=["ultrakurz","kurz","mittel","lang","sehr lang"],
+                     value=st.session_state.length, key="length")
     st.caption("Hinweis: Keine personenbezogenen oder internen Daten eingeben.")
-    st.button("🔄 Zurücksetzen", use_container_width=True, on_click=reset_state)
+    # Reset-Button: setzt Session-State, aber kein st.rerun() im Callback
+    def _reset():
+        for k, v in DEFAULTS.items():
+            st.session_state[k] = v
+        st.session_state["_reset_performed"] = True
+    st.button("🔄 Zurücksetzen", use_container_width=True, on_click=_reset)
 
 # ---------- Layout ----------
 col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
 
-# ---------- Hilfs-Wrapper für optische Hervorhebung ----------
+# ---------- Highlight-Wrapper (nur Hintergrund ändern, keine Zusatzfelder) ----------
 def wrap_optfield(active: bool):
     class _Ctx:
         def __enter__(self):
-            if active:
-                st.markdown('<div class="optfield">', unsafe_allow_html=True)
+            if active: st.markdown('<div class="optfield">', unsafe_allow_html=True)
         def __exit__(self, exc_type, exc, tb):
-            if active:
-                st.markdown('</div>', unsafe_allow_html=True)
+            if active: st.markdown('</div>', unsafe_allow_html=True)
     return _Ctx()
 
 # ---------- Linke Spalte ----------
 with col_left:
     st.subheader("🧩 Use-Case")
-    use_case = st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
-                        index=keep_or_default(st.session_state.get("use_case"), list(UC_LABEL.keys())),
-                        key="use_case",
-                        format_func=lambda v: UC_LABEL[v])
+    st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
+             index=keep_or_default(st.session_state.use_case, list(UC_LABEL.keys())),
+             key="use_case", format_func=lambda v: UC_LABEL[v])
 
-    # Untertyp (abhängig vom Use-Case)
-    sub_options = UC_SUBTYPES.get(use_case, [])
+    sub_options = UC_SUBTYPES.get(st.session_state.use_case, [])
     if sub_options:
         st.selectbox("Untertyp", sub_options,
                      index=keep_or_default(st.session_state.get("sub_use_case"), sub_options),
@@ -160,9 +155,10 @@ with col_left:
     st.markdown("---")
 
     st.subheader("🎯 Ziel / Output")
-    goal_options = GOALS_BY_UC.get(use_case, ["Freiform"])
+    goal_options = GOALS_BY_UC.get(st.session_state.use_case, ["Freiform"])
     st.selectbox("Zieltyp", goal_options,
-                 index=keep_or_default(st.session_state.get("goal"), goal_options), key="goal")
+                 index=keep_or_default(st.session_state.get("goal"), goal_options),
+                 key="goal")
 
     subgoal_options = GOAL_SUBTYPES.get(st.session_state.get("goal", ""), [])
     if subgoal_options:
@@ -174,7 +170,6 @@ with col_left:
 
     st.markdown("---")
 
-    # --- Optionale Felder (Text/Area) mit Highlight, sobald Wert vorhanden ---
     with wrap_optfield(bool(st.session_state.get("audience"))):
         st.text_input("Zielgruppe (optional)", key="audience",
                       placeholder="z. B. Leitung, Team, Öffentlichkeit")
@@ -184,15 +179,12 @@ with col_left:
                      placeholder="Stichworte, Bullets …", height=70)
 
     st.subheader("🎚️ Stil & Ton")
-    # Slider-Highlight: wenn vom Default abweichend
     with wrap_optfield(st.session_state.get("tone", DEFAULTS["tone"]) != DEFAULTS["tone"]):
         st.select_slider("Tonfall", options=["sehr sachlich","sachlich","neutral","lebendig","kreativ"],
                          value=st.session_state.get("tone", DEFAULTS["tone"]), key="tone")
-
     with wrap_optfield(st.session_state.get("rigor", DEFAULTS["rigor"]) != DEFAULTS["rigor"]):
         st.select_slider("Strenge/Struktur", options=["locker","mittel","klar","sehr klar"],
                          value=st.session_state.get("rigor", DEFAULTS["rigor"]), key="rigor")
-
     with wrap_optfield(bool(st.session_state.get("persona"))):
         st.text_input("Rolle (optional)", key="persona",
                       placeholder="z. B. Qualitätsauditor:in")
@@ -206,7 +198,6 @@ with col_mid:
                      height=120)
 
     st.subheader("🧱 Struktur")
-    # Multiselect: Highlight, falls von Default abweichend
     current_struct = st.session_state.get("structure", DEFAULTS["structure"])
     with wrap_optfield(sorted(current_struct) != sorted(DEFAULTS["structure"])):
         st.multiselect("Bausteine auswählen",
@@ -215,7 +206,6 @@ with col_mid:
                        default=DEFAULTS["structure"], key="structure")
 
     st.subheader("🔒 Qualitäts/Compliance")
-    # Checkboxen: Highlight, wenn aktiv
     with wrap_optfield(bool(st.session_state.get("qc_facts"))):
         st.checkbox("Faktencheck", key="qc_facts")
     with wrap_optfield(bool(st.session_state.get("qc_bias"))):
