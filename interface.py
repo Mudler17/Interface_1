@@ -80,7 +80,6 @@ DEFAULTS = {
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
     "feedback_good": None, "feedback_delta": "",  # Iteration
 }
-
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
@@ -180,8 +179,14 @@ with st.sidebar:
         help="Bestimmt, worauf das Gespräch fokussiert: Handlung (praktisch), Gefühle (emotional) oder Zugehörigkeit/Rollen (sozial)."
     )
     inject_mode_css(st.session_state.mode)
-    st.caption(f"""<span class="mode-badge">Modus aktiv: {{"praktisch":"🔧 Praktisch","emotional":"💚 Emotional","sozial":"🧩 Sozial"}[st.session_state.mode]}</span>""",
-               unsafe_allow_html=True)
+
+    # FIX: f-string ohne eingebettetes Dict
+    mode_label = {
+        "praktisch": "🔧 Praktisch",
+        "emotional": "💚 Emotional",
+        "sozial": "🧩 Sozial"
+    }[st.session_state.mode]
+    st.caption(f'<span class="mode-badge">Modus aktiv: {mode_label}</span>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("🎯 Ziel der Konversation")
