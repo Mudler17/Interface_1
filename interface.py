@@ -1,4 +1,4 @@
-# app.py — Prompt-Plattform (Kernprompt prominent, Deep-Questions zuschaltbar, Copy-Buttons, robuste Multiselects)
+# app.py — Prompt-Plattform (Kompaktes Tab-Layout)
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -11,7 +11,7 @@ import pandas as pd  # Erforderlich für st.data_editor
 st.set_page_config(page_title="🧭 Prompt-Plattform", page_icon="🧭", layout="wide")
 
 # =========================
-# (Minimal) Styles – ohne Input/Checkbox-Färbungen
+# (Minimal) Styles
 # =========================
 BASE_CSS = """
 <style>
@@ -23,6 +23,11 @@ BASE_CSS = """
 .copy-row { display:flex; gap:.5rem; align-items:center; margin:.25rem 0 .5rem 0; }
 .copy-btn { padding:.35rem .6rem; border:1px solid #999; background:#fff; border-radius:.5rem; cursor:pointer; }
 .copy-btn:hover { background:#f7f7f7; }
+
+/* Vertikalen Platz in Tabs reduzieren */
+[data-testid="stTabs"] [data-testid="stMarkdownContainer"] {
+    padding-top: 0.5rem;
+}
 </style>
 """
 st.markdown(BASE_CSS, unsafe_allow_html=True)
@@ -33,110 +38,40 @@ st.markdown(BASE_CSS, unsafe_allow_html=True)
 DEFAULTS = {
     "lang": "de", "out_format": "markdown", "length": "mittel",
     "mode": "praktisch",
-    "conversation_goals": [],        # Widget state (Multiselect)
+    "conversation_goals": [],
     "use_case": "analysieren",
-    "sub_use_cases": [],             # Widget state (Multiselect)
-    "goal": [],                      # Widget state (Multiselect)
-    "goal_subtype": [],              # Widget state (Multiselect)
+    "sub_use_cases": [],
+    "goal": [],
+    "goal_subtype": [],
     "audience": "",
     "constraints": "",
     "tone": "sachlich",
     "rigor": "klar",
     "persona": "",
     "context": "",
-    "core_prompt": "",               # 📝 Anliegen / Kernprompt
+    "core_prompt": "",
     "structure": ["Einleitung mit Zielbild", "Nächste Schritte"],
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
-    # dq_top1/2/3 werden durch dq_prioritized_list ersetzt
     "dq_prioritized_list": [],
     "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": "",
-    "enable_deep_questions": True    # Modul-Schalter
+    "enable_deep_questions": True
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
 # =========================
 # Dictionaries (Use-Case & Ziele)
+# (Unverändert - hier eingeklappt zur besseren Lesbarkeit)
 # =========================
-UC_LABEL = {
-    "schreiben": "🖋️ Schreiben",
-    "analysieren": "📊 Analysieren",
-    "lernen": "🧠 Lernen/Erklären",
-    "coden": "💻 Coden",
-    "kreativ": "🎨 Kreativideen",
-    "sonstiges": "🧪 Sonstiges",
-}
-UC_SUBTYPES_BASE = {
-    "analysieren": [
-        "SWOT-Analyse", "Risikobewertung", "Prozessanalyse",
-        "Lessons Learned", "Benchmarking", "Wirkungsanalyse"
-    ],
-    "schreiben": [
-        "Bericht / Zusammenfassung", "Konzeptpapier", "Leitfaden",
-        "Protokoll / Dokumentation", "Rede / Laudatio", "Newsletter / Beitrag"
-    ],
-    "lernen": [
-        "Lernskript / Handout", "Quiz / Wissenstest", "Begriffserklärung",
-        "Trainingsplan / Kursstruktur", "Fallbeispiel / Szenario"
-    ],
-    "coden": [
-        "Code-Snippet erzeugen", "Fehleranalyse / Debugging",
-        "Refactoring-Vorschlag", "Testfälle generieren", "Dokumentation schreiben"
-    ],
-    "kreativ": [
-        "Brainstorming-Ideen", "Titel / Claims finden", "Metaphern entwickeln",
-        "Storyboard / Szenenaufbau", "Visualisierungsidee", "Prompt für Bildgenerator"
-    ],
-    "sonstiges": [
-        "Freiform / Experimentell", "Systemische Reflexion", "Philosophischer Entwurf"
-    ],
-}
-GOALS_BY_UC = {
-    "analysieren": ["SWOT-Analyse", "Benchmark", "Risiko-Check", "Lessons Learned", "Ursache–Wirkung", "Wirkungsanalyse"],
-    "schreiben":   ["Interviewleitfaden", "Konzeptskizze", "Checkliste", "Bericht/Protokoll", "Newsletter/Beitrag", "Rede/Laudatio"],
-    "coden":       ["Code-Snippet", "Testfälle generieren", "Fehleranalyse (Bug Report)", "Refactoring-Vorschlag", "Dokumentation"],
-    "lernen":      ["Einfach erklären", "Quiz", "Schritt-für-Schritt-Anleitung", "Glossar", "Fallbeispiel"],
-    "kreativ":     ["Brainstorming-Liste", "Storyboard", "Titel/Claims", "Metaphern/Analogien", "Visualisierungsideen"],
-    "sonstiges":   ["Freiform"],
-}
-GOAL_SUBTYPES_BASE = {
-    "Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"],
-    "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"],
-    "Checkliste": ["Kurz-Check", "Detail-Check"],
-    "SWOT-Analyse": ["Standard 4-Felder", "Mit Gewichtung"],
-    "Benchmark": ["2er-Vergleich", "Mehrfach-Vergleich (3+)", "Tabellarisch"],
-    "Risiko-Check": ["Risikomatrix", "Top-5 Risiken", "Gegenmaßnahmen"],
-    "Ursache–Wirkung": ["Fishbone (Ishikawa)", "5-Why"],
-    "Wirkungsanalyse": ["Inputs-Outputs-Outcomes", "Theory of Change (Kurz)"],
-    "Code-Snippet": ["Python", "JavaScript", "SQL"],
-    "Refactoring-Vorschlag": ["Lesbarkeit", "Performance", "Struktur"],
-    "Testfälle generieren": ["Unit-Tests", "Property-Based", "Edge-Cases"],
-    "Fehleranalyse (Bug Report)": ["Minimalbeispiel", "Hypothesen", "Fix-Idee"],
-    "Dokumentation": ["Docstring", "README-Skizze", "API-Beschreibung"],
-    "Einfach erklären": ["Für Kinder (8+)", "Für Fachfremde", "Für Fortgeschrittene"],
-    "Quiz": ["6 Fragen", "10 Fragen", "Mix Bloom"],
-    "Schritt-für-Schritt-Anleitung": ["5 Schritte", "10 Schritte", "mit Prüfpunkten"],
-    "Glossar": ["10 Begriffe", "20 Begriffe", "mit Beispielen"],
-    "Fallbeispiel": ["Szenario kurz", "Szenario ausführlich"],
-    "Brainstorming-Liste": ["20 Ideen", "5 Kategorien × 5 Ideen"],
-    "Storyboard": ["3-Akt-Struktur", "Kapitel-Outline"],
-    "Titel/Claims": ["10 Titel", "5 Claims + Unterzeile"],
-    "Metaphern/Analogien": ["3 starke Metaphern", "Pro/Contra je Metapher"],
-    "Visualisierungsideen": ["Skizzenansätze", "Infografik-Varianten"],
-    "Newsletter/Beitrag": ["Kurzmeldung", "Standard (Lead/Zitat/Hintergrund)"],
-    "Bericht/Protokoll": ["Kurzprotokoll", "Vollprotokoll"],
-    "Rede/Laudatio": ["klassisch", "persönlich", "prägnant"],
-    "Freiform": [],
-}
-FORMAT_LABEL = {"markdown":"Markdown","text":"Reiner Text","json":"JSON","table":"Tabelle (MD)"}
-GOAL_EXAMPLES = {
-    "praktisch": ["Verständnis klären","Lösung entwickeln","Entscheidung vorbereiten","Prioritäten festlegen","Nächste Schritte planen"],
-    "emotional": ["Motivation stärken","Vertrauen aufbauen","Bedenken ansprechen","Ermutigung geben","Feedback verarbeiten"],
-    "sozial":    ["Zusammenarbeit verbessern","Rollen klären","Anerkennung zeigen","Gemeinsame Vision entwickeln","Spannungen abbauen"],
-}
+UC_LABEL = {"schreiben": "🖋️ Schreiben", "analysieren": "📊 Analysieren", "lernen": "🧠 Lernen/Erklären", "coden": "💻 Coden", "kreativ": "🎨 Kreativideen", "sonstiges": "🧪 Sonstiges"}
+UC_SUBTYPES_BASE = {"analysieren": ["SWOT-Analyse", "Risikobewertung", "Prozessanalyse", "Lessons Learned", "Benchmarking", "Wirkungsanalyse"], "schreiben": ["Bericht / Zusammenfassung", "Konzeptpapier", "Leitfaden", "Protokoll / Dokumentation", "Rede / Laudatio", "Newsletter / Beitrag"], "lernen": ["Lernskript / Handout", "Quiz / Wissenstest", "Begriffserklärung", "Trainingsplan / Kursstruktur", "Fallbeispiel / Szenario"], "coden": ["Code-Snippet erzeugen", "Fehleranalyse / Debugging", "Refactoring-Vorschlag", "Testfälle generieren", "Dokumentation schreiben"], "kreativ": ["Brainstorming-Ideen", "Titel / Claims finden", "Metaphern entwickeln", "Storyboard / Szenenaufbau", "Visualisierungsidee", "Prompt für Bildgenerator"], "sonstiges": ["Freiform / Experimentell", "Systemische Reflexion", "Philosophischer Entwurf"]}
+GOALS_BY_UC = {"analysieren": ["SWOT-Analyse", "Benchmark", "Risiko-Check", "Lessons Learned", "Ursache–Wirkung", "Wirkungsanalyse"], "schreiben": ["Interviewleitfaden", "Konzeptskizze", "Checkliste", "Bericht/Protokoll", "Newsletter/Beitrag", "Rede/Laudatio"], "coden": ["Code-Snippet", "Testfälle generieren", "Fehleranalyse (Bug Report)", "Refactoring-Vorschlag", "Dokumentation"], "lernen": ["Einfach erklären", "Quiz", "Schritt-für-Schritt-Anleitung", "Glossar", "Fallbeispiel"], "kreativ": ["Brainstorming-Liste", "Storyboard", "Titel/Claims", "Metaphern/Analogien", "Visualisierungsideen"], "sonstiges": ["Freiform"]}
+GOAL_SUBTYPES_BASE = {"Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"], "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"], "Checkliste": ["Kurz-Check", "Detail-Check"], "SWOT-Analyse": ["Standard 4-Felder", "Mit Gewichtung"], "Benchmark": ["2er-Vergleich", "Mehrfach-Vergleich (3+)", "Tabellarisch"], "Risiko-Check": ["Risikomatrix", "Top-5 Risiken", "Gegenmaßnahmen"], "Ursache–Wirkung": ["Fishbone (Ishikawa)", "5-Why"], "Wirkungsanalyse": ["Inputs-Outputs-Outcomes", "Theory of Change (Kurz)"], "Code-Snippet": ["Python", "JavaScript", "SQL"], "Refactoring-Vorschlag": ["Lesbarkeit", "Performance", "Struktur"], "Testfälle generieren": ["Unit-Tests", "Property-Based", "Edge-Cases"], "Fehleranalyse (Bug Report)": ["Minimalbeispiel", "Hypothesen", "Fix-Idee"], "Dokumentation": ["Docstring", "README-Skizze", "API-Beschreibung"], "Einfach erklären": ["Für Kinder (8+)", "Für Fachfremde", "Für Fortgeschrittene"], "Quiz": ["6 Fragen", "10 Fragen", "Mix Bloom"], "Schritt-für-Schritt-Anleitung": ["5 Schritte", "10 Schritte", "mit Prüfpunkten"], "Glossar": ["10 Begriffe", "20 Begriffe", "mit Beispielen"], "Fallbeispiel": ["Szenario kurz", "Szenario ausführlich"], "Brainstorming-Liste": ["20 Ideen", "5 Kategorien × 5 Ideen"], "Storyboard": ["3-Akt-Struktur", "Kapitel-Outline"], "Titel/Claims": ["10 Titel", "5 Claims + Unterzeile"], "Metaphern/Analogien": ["3 starke Metaphern", "Pro/Contra je Metapher"], "Visualisierungsideen": ["Skizzenansätze", "Infografik-Varianten"], "Newsletter/Beitrag": ["Kurzmeldung", "Standard (Lead/Zitat/Hintergrund)"], "Bericht/Protokoll": ["Kurzprotokoll", "Vollprotokoll"], "Rede/Laudatio": ["klassisch", "persönlich", "prägnant"], "Freiform": []}
+FORMAT_LABEL = {"markdown": "Markdown", "text": "Reiner Text", "json": "JSON", "table": "Tabelle (MD)"}
+GOAL_EXAMPLES = {"praktisch": ["Verständnis klären", "Lösung entwickeln", "Entscheidung vorbereiten", "Prioritäten festlegen", "Nächste Schritte planen"], "emotional": ["Motivation stärken", "Vertrauen aufbauen", "Bedenken ansprechen", "Ermutigung geben", "Feedback verarbeiten"], "sozial": ["Zusammenarbeit verbessern", "Rollen klären", "Anerkennung zeigen", "Gemeinsame Vision entwickeln", "Spannungen abbauen"]}
 
 # =========================
-# Utility
+# Utility (Unverändert)
 # =========================
 def keep_or_default(current, options):
     if not options: return 0
@@ -157,21 +92,13 @@ def unique_merge(base: list[str], extra: list[str]) -> list[str]:
     return merged
 
 def _normalize_default_list(val, options):
-    """Robuste Normalisierung für Multiselect-Defaults."""
-    if isinstance(val, list):
-        base = val
-    elif isinstance(val, str):
-        base = [s.strip() for s in val.split(",") if s.strip()]
-    elif val is None:
-        base = []
-    else:
-        base = []
+    if isinstance(val, list): base = val
+    elif isinstance(val, str): base = [s.strip() for s in val.split(",") if s.strip()]
+    elif val is None: base = []
+    else: base = []
     return [o for o in base if o in options]
 
 def multiselect_with_free_text(label: str, options: list[str], state_key: str, free_key: str, help: str = "", placeholder: str = "Eigenes hinzufügen … (kommagetrennt)"):
-    """
-    Multiselect + Freitext. Rückgabe: (selected:list, free_items:list, combined:list).
-    """
     default_selected = _normalize_default_list(st.session_state.get(state_key), options)
     selected = st.multiselect(label, options, default=default_selected, key=state_key, help=help)
     free_val = st.text_input("+" + label, key=free_key, placeholder=placeholder, help="Eigene Einträge ergänzen (mit Enter bestätigen).")
@@ -181,120 +108,66 @@ def multiselect_with_free_text(label: str, options: list[str], state_key: str, f
 
 def aggregate_subtypes_for_goals(goals: list[str]) -> list[str]:
     pool = []
-    for g in goals:
-        pool.extend(GOAL_SUBTYPES_BASE.get(g, []))
+    for g in goals: pool.extend(GOAL_SUBTYPES_BASE.get(g, []))
     seen, agg = set(), []
     for x in pool:
-        if x not in seen:
-            agg.append(x); seen.add(x)
+        if x not in seen: agg.append(x); seen.add(x)
     return agg
 
 def _clear_dependent_fields():
-    """Setzt abhängige Felder zurück, wenn der Use-Case wechselt."""
     st.session_state.sub_use_cases = DEFAULTS["sub_use_cases"]
     st.session_state.goal = DEFAULTS["goal"]
     st.session_state.goal_subtype = DEFAULTS["goal_subtype"]
     st.session_state.free_subtypes = DEFAULTS["free_subtypes"]
     st.session_state.free_goals = DEFAULTS["free_goals"]
     st.session_state.free_goal_subtypes = DEFAULTS["free_goal_subtypes"]
-    # dq_prioritized_list wird automatisch in col_mid neu berechnet
 
 # =========================
-# Deep Questions (3 Vorschläge + Priorisierung)
+# Deep Questions (Unverändert)
 # =========================
 def deep_questions(mode: str, goals: list[str]) -> list[str]:
     gset = set(goals or [])
     qs = []
     if mode == "emotional":
-        qs = [
-            "Wann hast du das zuletzt besonders **stark gefühlt** – und was hat es ausgelöst?",
-            "Welche **Sorgen oder Hoffnungen** sind hier für dich am wichtigsten?",
-            "Was würde dir **Zuversicht** geben, den nächsten Schritt zu gehen?",
-        ]
+        qs = ["Wann hast du das zuletzt besonders **stark gefühlt** – und was hat es ausgelöst?", "Welche **Sorgen oder Hoffnungen** sind hier für dich am wichtigsten?", "Was würde dir **Zuversicht** geben, den nächsten Schritt zu gehen?"]
     elif mode == "sozial":
-        qs = [
-            "Wessen **Perspektive** fehlt aktuell – und wie würde sie die Lage verändern?",
-            "Welche **Rollen oder Erwartungen** prägen das Verhalten der Beteiligten?",
-            "Welche **gemeinsamen Werte** könnten hier Orientierung geben?",
-        ]
+        qs = ["Wessen **Perspektive** fehlt aktuell – und wie würde sie die Lage verändern?", "Welche **Rollen oder Erwartungen** prägen das Verhalten der Beteiligten?", "Welche **gemeinsamen Werte** könnten hier Orientierung geben?"]
     else:  # praktisch
-        if "Risiko-Check" in gset:
-            qs = [
-                "Wenn du nur **eine Gegenmaßnahme** umsetzen dürftest: Welche – und warum?",
-                "Welche **Frühindikatoren** signalisieren dir, dass das Risiko steigt?",
-                "Welche **Grenzwerte** lösen eine **Sofortmaßnahme** aus?",
-            ]
-        elif "SWOT-Analyse" in gset:
-            qs = [
-                "Welche **einzige Stärke** zahlt am stärksten aufs Ziel ein – und wie hebeln wir sie?",
-                "Welche **Schwäche** ist kurzfristig am **billigsten** zu entschärfen?",
-                "Welche **Chance** können wir mit geringstem Aufwand testen?",
-            ]
-        elif "Interviewleitfaden" in gset:
-            qs = [
-                "Welche **Kerninformation** muss das Interview liefern, um **entscheidbar** zu werden?",
-                "Welche **kritische Nachfrage** klärt das größte Rest-Risiko?",
-                "Welche **Beispiele** machen die Aussagen **nachprüfbar**?",
-            ]
-        else:
-            qs = [
-                "Wenn du **30 Minuten** hättest: Welche 3 Schritte bringen dich am schnellsten voran (Reihenfolge)?",
-                "Welchen **Entscheid** müsstest du heute treffen, um Momentum zu gewinnen?",
-                "Welche **Hürde** blockiert aktuell am meisten – und was wäre ein **kleiner Test**, sie zu senken?",
-            ]
+        if "Risiko-Check" in gset: qs = ["Wenn du nur **eine Gegenmaßnahme** umsetzen dürftest: Welche – und warum?", "Welche **Frühindikatoren** signalisieren dir, dass das Risiko steigt?", "Welche **Grenzwerte** lösen eine **Sofortmaßnahme** aus?"]
+        elif "SWOT-Analyse" in gset: qs = ["Welche **einzige Stärke** zahlt am stärksten aufs Ziel ein – und wie hebeln wir sie?", "Welche **Schwäche** ist kurzfristig am **billigsten** zu entschärfen?", "Welche **Chance** können wir mit geringstem Aufwand testen?"]
+        elif "Interviewleitfaden" in gset: qs = ["Welche **Kerninformation** muss das Interview liefern, um **entscheidbar** zu werden?", "Welche **kritische Nachfrage** klärt das größte Rest-Risiko?", "Welche **Beispiele** machen die Aussagen **nachprüfbar**?"]
+        else: qs = ["Wenn du **30 Minuten** hättest: Welche 3 Schritte bringen dich am schnellsten voran (Reihenfolge)?", "Welchen **Entscheid** müsstest du heute treffen, um Momentum zu gewinnen?", "Welche **Hürde** blockiert aktuell am meisten – und was wäre ein **kleiner Test**, sie zu senken?"]
     return qs
 
 def prioritize_questions_editor(label: str, options: list[str]) -> list[str]:
-    """
-    Ersetzt prioritize_three durch einen robusten st.data_editor 
-    für die Priorisierung per Drag-and-Drop.
-    """
     if not options:
-        st.info("Keine Deep Questions verfügbar.")
+        st.info("Keine Deep Questions für diese Auswahl verfügbar.")
         return []
-
-    # Eindeutiger State-Key für den DataFrame, um die Sortierung zu speichern
     df_state_key = "dq_editor_df"
-    
-    # Prüfen, ob sich die Optionen geändert haben (z.B. Modus-Wechsel)
     current_option_set = set(options)
     if df_state_key not in st.session_state:
-        # Initialisierung
         st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
     else:
-        # Abgleich: Haben sich die Fragen geändert?
         try:
             stored_option_set = set(st.session_state[df_state_key]["Frage"])
             if current_option_set != stored_option_set:
                 st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
-        except KeyError: # Falls DataFrame-Struktur korrupt ist
+        except KeyError:
              st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
-
-
-    st.caption(f"{label} (Top 3, Reihenfolge per Drag-and-Drop ändern)")
     
+    st.caption(f"{label} (Top 3, Reihenfolge per Drag-and-Drop ändern)")
     edited_df = st.data_editor(
         st.session_state[df_state_key],
-        key="dq_editor_widget", # Key für das Widget selbst
-        column_config={
-            "Frage": st.column_config.TextColumn(
-                "Frage", 
-                disabled=True, # Text der Frage nicht editierbar
-                width="large"
-            )
-        },
+        key="dq_editor_widget",
+        column_config={"Frage": st.column_config.TextColumn("Frage", disabled=True, width="large")},
         hide_index=True,
-        num_rows="dynamic", # Aktiviert Drag-and-Drop
+        num_rows="dynamic",
     )
-    
-    # Speichere den sortierten DataFrame zurück in den State
     st.session_state[df_state_key] = edited_df
-
-    # Gebe die Top 3 der (jetzt sortierten) Liste zurück
     return list(edited_df["Frage"].head(3))
 
 # =========================
-# Sidebar (inkl. Schalter für Deep-Questions)
+# Sidebar (Unverändert)
 # =========================
 with st.sidebar:
     st.header("🧭 Navigation")
@@ -339,18 +212,14 @@ with st.sidebar:
 
     def _reset():
         for k, v in DEFAULTS.items(): st.session_state[k] = v
-        for k in ["conversation_goals_combined","sub_use_cases_combined","goals_combined","goal_subtypes_combined"]:
-            st.session_state[k] = []
-        # Clear data editor state
-        if "dq_editor_df" in st.session_state:
-            del st.session_state["dq_editor_df"]
-        if "dq_editor_widget" in st.session_state:
-            del st.session_state["dq_editor_widget"]
+        for k in ["conversation_goals_combined","sub_use_cases_combined","goals_combined","goal_subtypes_combined"]: st.session_state[k] = []
+        if "dq_editor_df" in st.session_state: del st.session_state["dq_editor_df"]
+        if "dq_editor_widget" in st.session_state: del st.session_state["dq_editor_widget"]
             
     st.button("🔄 Zurücksetzen", use_container_width=True, on_click=_reset)
 
 # =========
-# Prominente Eingabe: Anliegen / Kernprompt (volle Breite)
+# Prominente Eingabe: Anliegen / Kernprompt (Unverändert)
 # =========
 st.markdown("## 📝 Anliegen / Kernprompt")
 st.text_area(
@@ -360,148 +229,152 @@ st.text_area(
     height=120,
     help="Dieser freie Text steht im Mittelpunkt und wird direkt in den finalen Prompt eingebaut."
 )
-
 st.markdown("---")
 
 # =========
-# Dreispaltiges Layout
+# NEUES LAYOUT: col_config (mit Tabs) und col_output
 # =========
-col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
+col_config, col_output = st.columns([1.8, 1.2], gap="large")
 
-# =========================
-# Linke Spalte
-# =========================
-with col_left:
-    st.subheader("🧩 Use-Case")
-    st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
-             index=keep_or_default(st.session_state.use_case, list(UC_LABEL.keys())),
-             key="use_case", format_func=lambda v: UC_LABEL[v],
-             help="Oberkategorie für den Prompt.",
-             on_change=_clear_dependent_fields  # <-- VERBESSERUNG
-    )
+with col_config:
+    tab_uc, tab_context, tab_details, tab_dq = st.tabs([
+        "🎯 1. Use-Case & Ziel", 
+        "🖼️ 2. Kontext & Stil", 
+        "⚙️ 3. Details & QC",
+        "🪄 4. Deep Questions"
+    ])
 
-    base_subtypes = UC_SUBTYPES_BASE.get(st.session_state.use_case, [])
-    _sel_subtypes, _free_subtypes, subtypes_combined = multiselect_with_free_text(
-        "Untertypen (Mehrfachauswahl)",
-        base_subtypes,
-        state_key="sub_use_cases",
-        free_key="free_subtypes",
-        help="Feinere Auswahl passend zum Use-Case."
-    )
-    st.session_state["sub_use_cases_combined"] = subtypes_combined
-
-    st.markdown("---")
-    st.subheader("🎯 Ziel / Output (Mehrfach)")
-    goal_options = GOALS_BY_UC.get(st.session_state.use_case, ["Freiform"])
-    _sel_goals, _free_goals, goals_combined = multiselect_with_free_text(
-        "Ziele wählen",
-        goal_options,
-        state_key="goal",
-        free_key="free_goals",
-        help="Mehrere Zielarten kombinieren."
-    )
-    st.session_state["goals_combined"] = goals_combined
-
-    aggregated_subtypes = aggregate_subtypes_for_goals(goals_combined)
-    _sel_gsub, _free_gsub, goal_subtypes_combined = multiselect_with_free_text(
-        "Ziel-Untertypen",
-        aggregated_subtypes,
-        state_key="goal_subtype",
-        free_key="free_goal_subtypes",
-        help="Feinvarianten zum Ziel (optional)."
-    )
-    st.session_state["goal_subtypes_combined"] = goal_subtypes_combined
-
-    st.markdown("---")
-
-    st.text_input("Zielgruppe (optional)", key="audience",
-                  placeholder="z. B. Leitung, Team, Öffentlichkeit",
-                  help="Für wen ist das Ergebnis gedacht?")
-
-    st.text_area("Rahmen / Muss-Kriterien (optional)", key="constraints",
-                 placeholder="Stichworte, Bullets …", height=70,
-                 help="Voraussetzungen, Grenzen, Positivliste etc.")
-
-    st.subheader("🎚️ Stil & Ton")
-    st.select_slider("Tonfall", options=["sehr sachlich","sachlich","neutral","lebendig","kreativ"],
-                     value=st.session_state.get("tone","sachlich"), key="tone",
-                     help="Stilistik der Antwort.")
-    st.select_slider("Strenge/Struktur", options=["locker","mittel","klar","sehr klar"],
-                     value=st.session_state.get("rigor","klar"), key="rigor",
-                     help="Grad der Strukturierung.")
-    st.text_input("Rolle (optional)", key="persona",
-                  placeholder="z. B. Qualitätsauditor:in", help="Rolle/Persona der KI.")
-
-# =========================
-# Mitte
-# =========================
-with col_mid:
-    st.subheader("🖼️ Kontext")
-    st.text_area("Kurzkontext (2–4 Bullets)", key="context",
-                 placeholder="• Thema / Problem\n• Ziel & Medium\n• Rahmenbedingungen\n• Quellen/Lage",
-                 height=120, help="Stichpunkte reichen.")
-
-    st.subheader("🧱 Struktur")
-    default_struct = ["Einleitung mit Zielbild", "Nächste Schritte"]
-    st.multiselect("Bausteine auswählen",
-                   ["Einleitung mit Zielbild","Vorgehensschritte","Analyse","Beispiele",
-                    "Qualitäts-Check","Nächste Schritte","Quellen"],
-                   default=default_struct, key="structure",
-                   help="Welche Gliederungsteile sollen erscheinen?")
-
-    st.subheader("🔒 Qualitäts/Compliance")
-    st.checkbox("Faktencheck", key="qc_facts", help="Unsichere Stellen markieren.")
-    st.checkbox("Bias-Check", key="qc_bias", help="Auf mögliche Verzerrungen hinweisen.")
-    st.checkbox("Datenschutz-Hinweis", key="qc_dp", help="Keinerlei personenbezogene Daten verarbeiten.")
-
-    st.markdown("---")
-    if st.session_state.enable_deep_questions:
-        st.subheader("🪄 Deep Questions (Priorisierung)")
-        # Generiere die Optionen basierend auf dem aktuellen Modus/Zielen
-        dq_list_options = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
+    # =========================
+    # Tab 1: Use-Case & Ziel
+    # =========================
+    with tab_uc:
+        st.subheader("🧩 Use-Case")
+        st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
+                 index=keep_or_default(st.session_state.use_case, list(UC_LABEL.keys())),
+                 key="use_case", format_func=lambda v: UC_LABEL[v],
+                 help="Oberkategorie für den Prompt.",
+                 on_change=_clear_dependent_fields,
+                 horizontal=True # Kompakter
+        )
         
-        # Rufe die neue Editor-Funktion auf
-        prioritized_list = prioritize_questions_editor("Fragen priorisieren", dq_list_options)
-        
-        # Speichere die Top 3 (oder weniger) im session_state für build_prompt und JSON
-        st.session_state["dq_prioritized_list"] = prioritized_list 
-        
-        if prioritized_list:
-            st.caption("Priorisierte Fragen (Top 3):")
-            for i, q in enumerate(prioritized_list, 1):
-                st.write(f"{i}. {q}")
-        # (Info, falls keine Fragen da, wird in der Funktion selbst angezeigt)
+        st.subheader("🎯 Ziel / Output (Mehrfach)")
+        goal_options = GOALS_BY_UC.get(st.session_state.use_case, ["Freiform"])
+        _sel_goals, _free_goals, goals_combined = multiselect_with_free_text(
+            "Ziele wählen",
+            goal_options,
+            state_key="goal",
+            free_key="free_goals",
+            help="Mehrere Zielarten kombinieren."
+        )
+        st.session_state["goals_combined"] = goals_combined
 
-    else:
-        st.info("Deep-Questions-Modul ist deaktiviert. Aktiviere es in der Sidebar.")
+        # KOMPAKT: Optionale Details in Expander
+        with st.expander("Optionale Untertypen (Use-Case & Ziel)"):
+            base_subtypes = UC_SUBTYPES_BASE.get(st.session_state.use_case, [])
+            _sel_subtypes, _free_subtypes, subtypes_combined = multiselect_with_free_text(
+                "Use-Case Untertypen",
+                base_subtypes,
+                state_key="sub_use_cases",
+                free_key="free_subtypes",
+                help="Feinere Auswahl passend zum Use-Case."
+            )
+            st.session_state["sub_use_cases_combined"] = subtypes_combined
+
+            aggregated_subtypes = aggregate_subtypes_for_goals(goals_combined)
+            _sel_gsub, _free_gsub, goal_subtypes_combined = multiselect_with_free_text(
+                "Ziel-Untertypen",
+                aggregated_subtypes,
+                state_key="goal_subtype",
+                free_key="free_goal_subtypes",
+                help="Feinvarianten zum Ziel (optional)."
+            )
+            st.session_state["goal_subtypes_combined"] = goal_subtypes_combined
+
+    # =========================
+    # Tab 2: Kontext & Stil
+    # =========================
+    with tab_context:
+        st.subheader("🖼️ Kontext")
+        st.text_area("Kurzkontext (2–4 Bullets)", key="context",
+                     placeholder="• Thema / Problem\n• Ziel & Medium\n• Rahmenbedingungen\n• Quellen/Lage",
+                     height=140, help="Stichpunkte reichen.")
+
+        st.text_input("Zielgruppe (optional)", key="audience",
+                      placeholder="z. B. Leitung, Team, Öffentlichkeit",
+                      help="Für wen ist das Ergebnis gedacht?")
+
+        # KOMPAKT: Stil-Settings in Popover
+        with st.popover("🎚️ Stil, Ton & Rolle anpassen"):
+            st.subheader("🎚️ Stil & Ton")
+            st.select_slider("Tonfall", options=["sehr sachlich","sachlich","neutral","lebendig","kreativ"],
+                             value=st.session_state.get("tone","sachlich"), key="tone",
+                             help="Stilistik der Antwort.")
+            st.select_slider("Strenge/Struktur", options=["locker","mittel","klar","sehr klar"],
+                             value=st.session_state.get("rigor","klar"), key="rigor",
+                             help="Grad der Strukturierung.")
+            
+            st.subheader("🤖 Rolle (Optional)")
+            st.text_input("Rolle der KI", key="persona",
+                          placeholder="z. B. Qualitätsauditor:in", help="Rolle/Persona der KI.")
+
+    # =========================
+    # Tab 3: Details & QC
+    # =========================
+    with tab_details:
+        st.subheader("🧱 Struktur der Antwort")
+        default_struct = ["Einleitung mit Zielbild", "Nächste Schritte"]
+        st.multiselect("Bausteine auswählen",
+                       ["Einleitung mit Zielbild","Vorgehensschritte","Analyse","Beispiele",
+                        "Qualitäts-Check","Nächste Schritte","Quellen"],
+                       default=default_struct, key="structure",
+                       help="Welche Gliederungsteile sollen erscheinen?")
+
+        st.subheader("🔒 Qualitäts/Compliance")
+        c1, c2, c3 = st.columns(3)
+        with c1: st.checkbox("Faktencheck", key="qc_facts", help="Unsichere Stellen markieren.")
+        with c2: st.checkbox("Bias-Check", key="qc_bias", help="Auf mögliche Verzerrungen hinweisen.")
+        with c3: st.checkbox("Datenschutz-Hinweis", key="qc_dp", help="Keinerlei personenbezogene Daten verarbeiten.")
+
+        st.subheader("📋 Rahmen / Muss-Kriterien")
+        st.text_area("Rahmen / Muss-Kriterien (optional)", key="constraints",
+                     placeholder="Stichworte, Bullets …\n• Maximal 300 Wörter\n• Muss 'Projekt X' erwähnen", height=100,
+                     help="Voraussetzungen, Grenzen, Positivliste etc.", label_visibility="collapsed")
+
+    # =========================
+    # Tab 4: Deep Questions
+    # =========================
+    with tab_dq:
+        if st.session_state.enable_deep_questions:
+            st.subheader("🪄 Deep Questions (Priorisierung)")
+            dq_list_options = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
+            prioritized_list = prioritize_questions_editor("Fragen priorisieren", dq_list_options)
+            st.session_state["dq_prioritized_list"] = prioritized_list 
+            
+            if prioritized_list:
+                st.caption("Priorisierte Fragen (Top 3):")
+                for i, q in enumerate(prioritized_list, 1):
+                    st.write(f"{i}. {q}")
+        else:
+            st.info("Deep-Questions-Modul ist in der Sidebar deaktiviert. Aktiviere es, um hier Fragen zu priorisieren.")
 
 # =========================
-# Prompt-Erzeugung
+# Prompt-Erzeugung (Unverändert)
 # =========================
 def build_prompt() -> str:
     lang_hint = "deutsch" if st.session_state.lang == "de" else "englisch"
     today = datetime.now().strftime("%Y-%m-%d")
-    of_hint = {
-        "markdown": "Antworte in sauberem Markdown.",
-        "text": "Antworte als Klartext ohne Markdown.",
-        "json": "Antworte als valides JSON.",
-        "table": "Antworte als Markdown-Tabelle."
-    }[st.session_state.out_format]
-
+    of_hint = {"markdown": "Antworte in sauberem Markdown.", "text": "Antworte als Klartext ohne Markdown.", "json": "Antworte als valides JSON.", "table": "Antworte als Markdown-Tabelle."}[st.session_state.out_format]
     subtypes_combined = st.session_state.get("sub_use_cases_combined", st.session_state.sub_use_cases)
     goals_combined = st.session_state.get("goals_combined", st.session_state.goal)
     goal_subtypes_combined = st.session_state.get("goal_subtypes_combined", st.session_state.goal_subtype)
     conv_goals_combined = st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)
-
     structure_list = st.session_state.structure or []
     structure_lines = "\n".join(f"- {s}" for s in structure_list) if structure_list else "- (freie Struktur)"
-
     qc_lines = []
     if st.session_state.qc_facts: qc_lines.append("• Prüfe Aussagen auf Plausibilität.")
     if st.session_state.qc_bias:  qc_lines.append("• Weisen auf mögliche Verzerrungen hin.")
     if st.session_state.qc_dp:    qc_lines.append("• Keine personenbezogenen Daten.")
     qc_block = "\n".join(qc_lines) if qc_lines else "• (keine Prüfhinweise)"
-
     use_case_label = UC_LABEL[st.session_state.use_case]
     sub_uc_line = f"Untertypen: {', '.join(subtypes_combined)}\n" if subtypes_combined else ""
     goals_line = f"Ziele/Outputs: {', '.join(goals_combined)}\n" if goals_combined else ""
@@ -510,23 +383,12 @@ def build_prompt() -> str:
     persona_line = f"Rolle: {st.session_state.persona}\n" if st.session_state.persona else ""
     audience_line = f"Zielgruppe: {st.session_state.audience}\n" if st.session_state.audience else ""
     constraints_line = f"Rahmen/Muss-Kriterien:\n{st.session_state.constraints.strip()}\n\n" if st.session_state.constraints.strip() else ""
-
-    mode_line = {
-        "praktisch": "Modus: PRAKTISCH – fokussiere auf konkrete Schritte, Klarheit, Entscheidbarkeit.",
-        "emotional": "Modus: EMOTIONAL – berücksichtige Gefühle, Motivation, Bedenken.",
-        "sozial":    "Modus: SOZIAL – berücksichtige Beziehungen, Rollen, Zugehörigkeit."
-    }[st.session_state.mode]
-
-    # Deep Questions optional (VERBESSERT)
+    mode_line = {"praktisch": "Modus: PRAKTISCH – fokussiere auf konkrete Schritte, Klarheit, Entscheidbarkeit.", "emotional": "Modus: EMOTIONAL – berücksichtige Gefühle, Motivation, Bedenken.", "sozial": "Modus: SOZIAL – berücksichtige Beziehungen, Rollen, Zugehörigkeit."}[st.session_state.mode]
     dq_block = ""
     if st.session_state.enable_deep_questions:
-        dq = st.session_state.get("dq_prioritized_list", []) # Holt die sortierte Top-3 Liste
-        if not dq: # Fallback, falls die Liste leer ist
-            dq = deep_questions(st.session_state.mode, goals_combined)[:3] # Nimm die Top 3 als default
-        
-        if dq: # Nur anzeigen, wenn Fragen vorhanden sind
-            dq_block = "\n\nDeep Questions (priorisiert):\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
-
+        dq = st.session_state.get("dq_prioritized_list", [])
+        if not dq: dq = deep_questions(st.session_state.mode, goals_combined)[:3]
+        if dq: dq_block = "\n\nDeep Questions (priorisiert):\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
     base_prompt = dedent(f"""
     {mode_line}
     Du bist ein Assistenzsystem für **{use_case_label}**.
@@ -549,15 +411,12 @@ def build_prompt() -> str:
     Liefere ein direkt nutzbares Ergebnis.
     Datum: {today}
     """).strip()
-
     return base_prompt
 
-# ---------- Copy-to-clipboard helper (VERBESSERT mit Feedback) ----------
+# ---------- Copy-to-clipboard helper (Unverändert) ----------
 def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
     enc = b64encode(text.encode("utf-8")).decode("ascii")
     success_label = "✅ Kopiert!"
-    
-    # Das onclick-Event übergibt 'this' (den Button selbst) an die Funktion
     js_click = f"""
     (function(btn){{
         const t = atob('{enc}'); 
@@ -571,11 +430,10 @@ def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
         }}, 1500);
     }})(this)
     """
-    
     components_html(
         f"""
         <div class="copy-row">
-          <button class="copy-btn" onclick="{js_click.replace('"', '&quot;')}" key="btn_{key}">{label}</button>
+          <button class.="copy-btn" onclick="{js_click.replace('"', '&quot;')}" key="btn_{key}">{label}</button>
           <span>In Zwischenablage kopieren</span>
         </div>
         """,
@@ -583,55 +441,30 @@ def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
     )
 
 # =========================
-# Rechte Spalte (Vorschau/Export + Kopieren)
+# NEUES LAYOUT: col_output (Rechte Spalte)
 # =========================
-with col_right:
+with col_output:
     st.subheader("👁️ Vorschau")
     prompt_text = build_prompt()
     auto_filename = f"prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    tabs = st.tabs(["🔤 Lesbare Version", "🧾 JSON"])
-    with tabs[0]:
+    tabs_out = st.tabs(["🔤 Lesbare Version", "🧾 JSON"])
+    with tabs_out[0]:
         st.code(prompt_text, language="markdown")
         render_copy_button(prompt_text, key="copy_md", label="📋 Prompt kopieren")
         st.download_button("⬇️ Als Markdown speichern",
                            data=prompt_text.encode("utf-8"),
                            file_name=f"{auto_filename}.md", mime="text/markdown")
 
-    with tabs[1]:
+    with tabs_out[1]:
         schema = {
             "protocol": "prompt.cockpit/1.3",
-            "meta": {
-                "created": datetime.now().isoformat(timespec="seconds"),
-                "language": st.session_state.lang,
-                "format": st.session_state.out_format,
-                "length": st.session_state.length,
-                "mode": st.session_state.mode,
-                "deep_questions_enabled": st.session_state.enable_deep_questions
-            },
-            "profile": {
-                "use_case": st.session_state.use_case,
-                "use_case_label": UC_LABEL[st.session_state.use_case],
-                "sub_use_cases": st.session_state.get("sub_use_cases_combined", st.session_state.sub_use_cases),
-                "goals": st.session_state.get("goals_combined", st.session_state.goal),
-                "goal_subtypes": st.session_state.get("goal_subtypes_combined", st.session_state.goal_subtype),
-                "persona": st.session_state.persona or None,
-                "audience": st.session_state.audience or None,
-                "structure": st.session_state.structure,
-                "qc": {
-                    "facts": st.session_state.qc_facts,
-                    "bias": st.session_state.qc_bias,
-                    "data_protection": st.session_state.qc_dp
-                },
-                "conversation_goals": st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)
-            },
+            "meta": {"created": datetime.now().isoformat(timespec="seconds"), "language": st.session_state.lang, "format": st.session_state.out_format, "length": st.session_state.length, "mode": st.session_state.mode, "deep_questions_enabled": st.session_state.enable_deep_questions},
+            "profile": {"use_case": st.session_state.use_case, "use_case_label": UC_LABEL[st.session_state.use_case], "sub_use_cases": st.session_state.get("sub_use_cases_combined", st.session_state.sub_use_cases), "goals": st.session_state.get("goals_combined", st.session_state.goal), "goal_subtypes": st.session_state.get("goal_subtypes_combined", st.session_state.goal_subtype), "persona": st.session_state.persona or None, "audience": st.session_state.audience or None, "structure": st.session_state.structure, "qc": {"facts": st.session_state.qc_facts, "bias": st.session_state.qc_bias, "data_protection": st.session_state.qc_dp}, "conversation_goals": st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)},
             "core_prompt": st.session_state.core_prompt,
             "context": st.session_state.context,
             "constraints": st.session_state.constraints,
-            "deep_questions": {
-                # VERBESSERT: Nutzt die neue State-Variable
-                "prioritized": st.session_state.get("dq_prioritized_list", []) if st.session_state.enable_deep_questions else []
-            },
+            "deep_questions": {"prioritized": st.session_state.get("dq_prioritized_list", []) if st.session_state.enable_deep_questions else []},
             "rendered_prompt": prompt_text
         }
         json_text = json.dumps(schema, ensure_ascii=False, indent=2)
