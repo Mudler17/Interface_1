@@ -1,4 +1,4 @@
-# app.py — Prompt-Plattform (Copy-Buttons, robuste Multiselect-Defaults)
+# app.py — Prompt-Plattform (Kernprompt prominent, Deep-Questions zuschaltbar, Copy-Buttons, robuste Multiselects)
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -43,10 +43,12 @@ DEFAULTS = {
     "rigor": "klar",
     "persona": "",
     "context": "",
+    "core_prompt": "",                  # 📝 Anliegen / Kernprompt
     "structure": ["Einleitung mit Zielbild", "Nächste Schritte"],
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
     "dq_top1": None, "dq_top2": None, "dq_top3": None,
-    "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": ""
+    "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": "",
+    "enable_deep_questions": True       # Modul-Schalter
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -161,16 +163,12 @@ def _normalize_default_list(val, options):
     elif val is None:
         base = []
     else:
-        # alles andere ignorieren
         base = []
-    # filtere auf gültige Optionen
     return [o for o in base if o in options]
 
 def multiselect_with_free_text(label: str, options: list[str], state_key: str, free_key: str, help: str = "", placeholder: str = "Eigenes hinzufügen … (kommagetrennt)"):
     """
-    Zeigt Multiselect + Free-Text-Feld.
-    Rückgabe: (selected:list, free_items:list, combined:list).
-    Robust gegen alte/inkonsistente Session-State-Werte.
+    Multiselect + Freitext. Rückgabe: (selected:list, free_items:list, combined:list).
     """
     default_selected = _normalize_default_list(st.session_state.get(state_key), options)
     selected = st.multiselect(label, options, default=default_selected, key=state_key, help=help)
@@ -259,7 +257,7 @@ def prioritize_three(label: str, options: list[str]) -> list[str]:
     return [top1, top2, top3]
 
 # =========================
-# Sidebar
+# Sidebar (inkl. Schalter für Deep-Questions)
 # =========================
 with st.sidebar:
     st.header("🧭 Navigation")
@@ -286,6 +284,9 @@ with st.sidebar:
     st.caption(f'<span class="mode-badge">Modus aktiv: {mode_label}</span>', unsafe_allow_html=True)
 
     st.markdown("---")
+    st.checkbox("Deep Questions aktivieren", key="enable_deep_questions", help="Schalte das Deep-Question-Modul ein/aus.")
+
+    st.markdown("---")
     st.subheader("🎯 Konversationsziele")
     mode_examples = GOAL_EXAMPLES.get(st.session_state.mode, [])
     _sel_conv, _free_conv, conv_goals_combined = multiselect_with_free_text(
@@ -306,7 +307,21 @@ with st.sidebar:
     st.button("🔄 Zurücksetzen", use_container_width=True, on_click=_reset)
 
 # =========
-# Layout
+# Prominente Eingabe: Anliegen / Kernprompt (volle Breite)
+# =========
+st.markdown("## 📝 Anliegen / Kernprompt")
+st.text_area(
+    "Formuliere dein zentrales Anliegen (frei).",
+    key="core_prompt",
+    placeholder="Beschreibe in 1–3 Sätzen, was du erreichen willst, worum es geht, welche Besonderheiten wichtig sind …",
+    height=120,
+    help="Dieser freie Text steht im Mittelpunkt und wird direkt in den finalen Prompt eingebaut."
+)
+
+st.markdown("---")
+
+# =========
+# Dreispaltiges Layout
 # =========
 col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
 
@@ -395,13 +410,16 @@ with col_mid:
     st.checkbox("Datenschutz-Hinweis", key="qc_dp", help="Keinerlei personenbezogene Daten verarbeiten.")
 
     st.markdown("---")
-    st.subheader("🪄 Deep Questions (3 Vorschläge + Priorität)")
-    dq_list = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
-    prioritized = prioritize_three("Beispielfragen", dq_list)
-    if prioritized:
-        st.caption("Priorisierte Fragen:")
-        for i, q in enumerate(prioritized, 1):
-            st.write(f"{i}. {q}")
+    if st.session_state.enable_deep_questions:
+        st.subheader("🪄 Deep Questions (3 Vorschläge + Priorität)")
+        dq_list = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
+        prioritized = prioritize_three("Beispielfragen", dq_list)
+        if prioritized:
+            st.caption("Priorisierte Fragen:")
+            for i, q in enumerate(prioritized, 1):
+                st.write(f"{i}. {q}")
+    else:
+        st.info("Deep-Questions-Modul ist deaktiviert. Aktiviere es in der Sidebar.")
 
 # =========================
 # Prompt-Erzeugung
@@ -445,15 +463,22 @@ def build_prompt() -> str:
         "sozial":    "Modus: SOZIAL – berücksichtige Beziehungen, Rollen, Zugehörigkeit."
     }[st.session_state.mode]
 
-    dq = [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
-    dq = [x for x in dq if x]
-    if not dq:
-        dq = deep_questions(st.session_state.mode, goals_combined)
-    dq_block = "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
+    # Deep Questions optional
+    dq_block = ""
+    if st.session_state.enable_deep_questions:
+        dq = [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
+        dq = [x for x in dq if x]
+        if not dq:
+            dq = deep_questions(st.session_state.mode, goals_combined)
+        dq_block = "\n\nDeep Questions (priorisiert):\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
 
     base_prompt = dedent(f"""
     {mode_line}
     Du bist ein Assistenzsystem für **{use_case_label}**.
+
+    Anliegen / Kernprompt:
+    {st.session_state.core_prompt.strip() or "(kein Anliegen angegeben)"}
+
     {sub_uc_line}{persona_line}{audience_line}{goals_line}{subgoals_line}{conv_goals_line}Sprache: {lang_hint}. Tonfall: {st.session_state.tone}. Struktur: {st.session_state.rigor}. Länge: {st.session_state.length}.
     {of_hint}
 
@@ -461,10 +486,7 @@ def build_prompt() -> str:
     {st.session_state.context.strip() or "(kein Kontext)"}
 
     Struktur:
-    {structure_lines}
-
-    Deep Questions (priorisiert):
-    {dq_block}
+    {structure_lines}{dq_block}
 
     {constraints_line}Qualität & Compliance:
     {qc_block}
@@ -506,13 +528,14 @@ with col_right:
 
     with tabs[1]:
         schema = {
-            "protocol": "prompt.cockpit/1.2",
+            "protocol": "prompt.cockpit/1.3",
             "meta": {
                 "created": datetime.now().isoformat(timespec="seconds"),
                 "language": st.session_state.lang,
                 "format": st.session_state.out_format,
                 "length": st.session_state.length,
-                "mode": st.session_state.mode
+                "mode": st.session_state.mode,
+                "deep_questions_enabled": st.session_state.enable_deep_questions
             },
             "profile": {
                 "use_case": st.session_state.use_case,
@@ -530,12 +553,13 @@ with col_right:
                 },
                 "conversation_goals": st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)
             },
-            "deep_questions": {
-                "prioritized": [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
-            },
+            "core_prompt": st.session_state.core_prompt,
             "context": st.session_state.context,
             "constraints": st.session_state.constraints,
-            "prompt": prompt_text
+            "deep_questions": {
+                "prioritized": [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")] if st.session_state.enable_deep_questions else []
+            },
+            "rendered_prompt": prompt_text
         }
         json_text = json.dumps(schema, ensure_ascii=False, indent=2)
         st.json(schema, expanded=False)
