@@ -1,4 +1,4 @@
-# app.py — Prompt-Plattform (Copy-Buttons, keine grünen Highlights für Inputs/Checkboxen)
+# app.py — Prompt-Plattform (Copy-Buttons, robuste Multiselect-Defaults)
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -14,7 +14,6 @@ st.set_page_config(page_title="🧭 Prompt-Plattform", page_icon="🧭", layout=
 # =========================
 BASE_CSS = """
 <style>
-/* Neutrales Modus-Badge (keine Button-Färbung) */
 .mode-badge {
   display:inline-flex; gap:.5rem; align-items:center;
   padding:.35rem .6rem; border-radius:999px; font-weight:600; font-size:.9rem;
@@ -46,9 +45,7 @@ DEFAULTS = {
     "context": "",
     "structure": ["Einleitung mit Zielbild", "Nächste Schritte"],
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
-    # Deep Questions Auswahl:
     "dq_top1": None, "dq_top2": None, "dq_top3": None,
-    # Freitext-Inputs (Widgets):
     "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": ""
 }
 for k, v in DEFAULTS.items():
@@ -65,8 +62,6 @@ UC_LABEL = {
     "kreativ": "🎨 Kreativideen",
     "sonstiges": "🧪 Sonstiges",
 }
-
-# Passendere Untertypen (je Use-Case)
 UC_SUBTYPES_BASE = {
     "analysieren": [
         "SWOT-Analyse", "Risikobewertung", "Prozessanalyse",
@@ -92,8 +87,6 @@ UC_SUBTYPES_BASE = {
         "Freiform / Experimentell", "Systemische Reflexion", "Philosophischer Entwurf"
     ],
 }
-
-# Ziele je Use-Case (mehrfach möglich)
 GOALS_BY_UC = {
     "analysieren": ["SWOT-Analyse", "Benchmark", "Risiko-Check", "Lessons Learned", "Ursache–Wirkung", "Wirkungsanalyse"],
     "schreiben":   ["Interviewleitfaden", "Konzeptskizze", "Checkliste", "Bericht/Protokoll", "Newsletter/Beitrag", "Rede/Laudatio"],
@@ -102,8 +95,6 @@ GOALS_BY_UC = {
     "kreativ":     ["Brainstorming-Liste", "Storyboard", "Titel/Claims", "Metaphern/Analogien", "Visualisierungsideen"],
     "sonstiges":   ["Freiform"],
 }
-
-# Untertypen je Ziel (für alle gewählten Ziele zusammen aggregieren)
 GOAL_SUBTYPES_BASE = {
     "Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"],
     "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"],
@@ -133,32 +124,11 @@ GOAL_SUBTYPES_BASE = {
     "Rede/Laudatio": ["klassisch", "persönlich", "prägnant"],
     "Freiform": [],
 }
-
 FORMAT_LABEL = {"markdown":"Markdown","text":"Reiner Text","json":"JSON","table":"Tabelle (MD)"}
-
-# Konversationsziel-Beispiele pro Modus
 GOAL_EXAMPLES = {
-    "praktisch": [
-        "Verständnis klären",
-        "Lösung entwickeln",
-        "Entscheidung vorbereiten",
-        "Prioritäten festlegen",
-        "Nächste Schritte planen",
-    ],
-    "emotional": [
-        "Motivation stärken",
-        "Vertrauen aufbauen",
-        "Bedenken ansprechen",
-        "Ermutigung geben",
-        "Feedback verarbeiten",
-    ],
-    "sozial": [
-        "Zusammenarbeit verbessern",
-        "Rollen klären",
-        "Anerkennung zeigen",
-        "Gemeinsame Vision entwickeln",
-        "Spannungen abbauen",
-    ],
+    "praktisch": ["Verständnis klären","Lösung entwickeln","Entscheidung vorbereiten","Prioritäten festlegen","Nächste Schritte planen"],
+    "emotional": ["Motivation stärken","Vertrauen aufbauen","Bedenken ansprechen","Ermutigung geben","Feedback verarbeiten"],
+    "sozial":    ["Zusammenarbeit verbessern","Rollen klären","Anerkennung zeigen","Gemeinsame Vision entwickeln","Spannungen abbauen"],
 }
 
 # =========================
@@ -182,9 +152,28 @@ def unique_merge(base: list[str], extra: list[str]) -> list[str]:
             seen.add(x)
     return merged
 
+def _normalize_default_list(val, options):
+    """Robuste Normalisierung für Multiselect-Defaults."""
+    if isinstance(val, list):
+        base = val
+    elif isinstance(val, str):
+        base = [s.strip() for s in val.split(",") if s.strip()]
+    elif val is None:
+        base = []
+    else:
+        # alles andere ignorieren
+        base = []
+    # filtere auf gültige Optionen
+    return [o for o in base if o in options]
+
 def multiselect_with_free_text(label: str, options: list[str], state_key: str, free_key: str, help: str = "", placeholder: str = "Eigenes hinzufügen … (kommagetrennt)"):
-    """Zeigt Multiselect + Free-Text-Feld. Rückgabe: (selected:list, free_items:list, combined:list)."""
-    selected = st.multiselect(label, options, default=[o for o in st.session_state.get(state_key, []) if o in options], key=state_key, help=help)
+    """
+    Zeigt Multiselect + Free-Text-Feld.
+    Rückgabe: (selected:list, free_items:list, combined:list).
+    Robust gegen alte/inkonsistente Session-State-Werte.
+    """
+    default_selected = _normalize_default_list(st.session_state.get(state_key), options)
+    selected = st.multiselect(label, options, default=default_selected, key=state_key, help=help)
     free_val = st.text_input("+" + label, key=free_key, placeholder=placeholder, help="Eigene Einträge ergänzen (mit Enter bestätigen).")
     free_items = parse_free_list(free_val)
     combined = unique_merge(selected, free_items)
@@ -245,25 +234,27 @@ def deep_questions(mode: str, goals: list[str]) -> list[str]:
             ]
     return qs
 
+def keep_or_default_sel(current, options):
+    return keep_or_default(current, options)
+
 def prioritize_three(label: str, options: list[str]) -> list[str]:
     """Drei Prioritäten (Top1..Top3), ohne Duplikate."""
     if not options:
         st.info("Keine Deep Questions verfügbar.")
         return []
-    # Defaults setzen, falls leer:
     st.session_state.setdefault("dq_top1", options[0])
     st.session_state.setdefault("dq_top2", options[1 if len(options) > 1 else 0])
     st.session_state.setdefault("dq_top3", options[2 if len(options) > 2 else 0])
 
-    top1 = st.selectbox(f"{label} – Top 1", options, index=keep_or_default(st.session_state.get("dq_top1"), options), key="dq_top1")
+    top1 = st.selectbox(f"{label} – Top 1", options, index=keep_or_default_sel(st.session_state.get("dq_top1"), options), key="dq_top1")
     opts2 = [o for o in options if o != top1] or options
     top2_default = st.session_state.get("dq_top2")
     if top2_default == top1: top2_default = opts2[0]
-    top2 = st.selectbox(f"{label} – Top 2", opts2, index=keep_or_default(top2_default, opts2), key="dq_top2")
+    top2 = st.selectbox(f"{label} – Top 2", opts2, index=keep_or_default_sel(top2_default, opts2), key="dq_top2")
     opts3 = [o for o in options if o not in (top1, top2)] or options
     top3_default = st.session_state.get("dq_top3")
     if top3_default in (top1, top2): top3_default = opts3[0]
-    top3 = st.selectbox(f"{label} – Top 3", opts3, index=keep_or_default(top3_default, opts3), key="dq_top3")
+    top3 = st.selectbox(f"{label} – Top 3", opts3, index=keep_or_default_sel(top3_default, opts3), key="dq_top3")
 
     return [top1, top2, top3]
 
@@ -320,7 +311,7 @@ with st.sidebar:
 col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
 
 # =========================
-# Linke Spalte (abhängige Menüs; Multiselect+Freitext)
+# Linke Spalte
 # =========================
 with col_left:
     st.subheader("🧩 Use-Case")
@@ -382,7 +373,7 @@ with col_left:
                   placeholder="z. B. Qualitätsauditor:in", help="Rolle/Persona der KI.")
 
 # =========================
-# Mitte (Kontext, Struktur, Qualität, Deep Questions)
+# Mitte
 # =========================
 with col_mid:
     st.subheader("🖼️ Kontext")
