@@ -1,4 +1,4 @@
-# app.py — Prompt-Plattform (Kompaktes Tab-Layout)
+# app.py — Prompt-Plattform (Kompaktes Tab-Layout, v3)
 from __future__ import annotations
 import json
 from datetime import datetime
@@ -27,6 +27,17 @@ BASE_CSS = """
 /* Vertikalen Platz in Tabs reduzieren */
 [data-testid="stTabs"] [data-testid="stMarkdownContainer"] {
     padding-top: 0.5rem;
+}
+
+/* NEU 1: Registerkarten-Titel größer */
+[data-testid="stTabs"] button {
+    font-size: 1.1rem;
+    padding: 0.6rem 0.8rem; /* Optional: Padding leicht miterhöhen */
+}
+
+/* NEU 3: Hauptinhalt nach oben schieben (Standard ist ca. 5rem) */
+.block-container {
+    padding-top: 1.5rem; 
 }
 </style>
 """
@@ -66,12 +77,12 @@ for k, v in DEFAULTS.items():
 UC_LABEL = {"schreiben": "🖋️ Schreiben", "analysieren": "📊 Analysieren", "lernen": "🧠 Lernen/Erklären", "coden": "💻 Coden", "kreativ": "🎨 Kreativideen", "sonstiges": "🧪 Sonstiges"}
 UC_SUBTYPES_BASE = {"analysieren": ["SWOT-Analyse", "Risikobewertung", "Prozessanalyse", "Lessons Learned", "Benchmarking", "Wirkungsanalyse"], "schreiben": ["Bericht / Zusammenfassung", "Konzeptpapier", "Leitfaden", "Protokoll / Dokumentation", "Rede / Laudatio", "Newsletter / Beitrag"], "lernen": ["Lernskript / Handout", "Quiz / Wissenstest", "Begriffserklärung", "Trainingsplan / Kursstruktur", "Fallbeispiel / Szenario"], "coden": ["Code-Snippet erzeugen", "Fehleranalyse / Debugging", "Refactoring-Vorschlag", "Testfälle generieren", "Dokumentation schreiben"], "kreativ": ["Brainstorming-Ideen", "Titel / Claims finden", "Metaphern entwickeln", "Storyboard / Szenenaufbau", "Visualisierungsidee", "Prompt für Bildgenerator"], "sonstiges": ["Freiform / Experimentell", "Systemische Reflexion", "Philosophischer Entwurf"]}
 GOALS_BY_UC = {"analysieren": ["SWOT-Analyse", "Benchmark", "Risiko-Check", "Lessons Learned", "Ursache–Wirkung", "Wirkungsanalyse"], "schreiben": ["Interviewleitfaden", "Konzeptskizze", "Checkliste", "Bericht/Protokoll", "Newsletter/Beitrag", "Rede/Laudatio"], "coden": ["Code-Snippet", "Testfälle generieren", "Fehleranalyse (Bug Report)", "Refactoring-Vorschlag", "Dokumentation"], "lernen": ["Einfach erklären", "Quiz", "Schritt-für-Schritt-Anleitung", "Glossar", "Fallbeispiel"], "kreativ": ["Brainstorming-Liste", "Storyboard", "Titel/Claims", "Metaphern/Analogien", "Visualisierungsideen"], "sonstiges": ["Freiform"]}
-GOAL_SUBTYPES_BASE = {"Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"], "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"], "Checkliste": ["Kurz-Check", "Detail-Check"], "SWOT-Analyse": ["Standard 4-Felder", "Mit Gewichtung"], "Benchmark": ["2er-Vergleich", "Mehrfach-Vergleich (3+)", "Tabellarisch"], "Risiko-Check": ["Risikomatrix", "Top-5 Risiken", "Gegenmaßnahmen"], "Ursache–Wirkung": ["Fishbone (Ishikawa)", "5-Why"], "Wirkungsanalyse": ["Inputs-Outputs-Outcomes", "Theory of Change (Kurz)"], "Code-Snippet": ["Python", "JavaScript", "SQL"], "Refactoring-Vorschlag": ["Lesbarkeit", "Performance", "Struktur"], "Testfälle generieren": ["Unit-Tests", "Property-Based", "Edge-Cases"], "Fehleranalyse (Bug Report)": ["Minimalbeispiel", "Hypothesen", "Fix-Idee"], "Dokumentation": ["Docstring", "README-Skizze", "API-Beschreibung"], "Einfach erklären": ["Für Kinder (8+)", "Für Fachfremde", "Für Fortgeschrittene"], "Quiz": ["6 Fragen", "10 Fragen", "Mix Bloom"], "Schritt-für-Schritt-Anleitung": ["5 Schritte", "10 Schritte", "mit Prüfpunkten"], "Glossar": ["10 Begriffe", "20 Begriffe", "mit Beispielen"], "Fallbeispiel": ["Szenario kurz", "Szenario ausführlich"], "Brainstorming-Liste": ["20 Ideen", "5 Kategorien × 5 Ideen"], "Storyboard": ["3-Akt-Struktur", "Kapitel-Outline"], "Titel/Claims": ["10 Titel", "5 Claims + Unterzeile"], "Metaphern/Analogien": ["3 starke Metaphern", "Pro/Contra je Metapher"], "Visualisierungsideen": ["Skizzenansätze", "Infografik-Varianten"], "Newsletter/Beitrag": ["Kurzmeldung", "Standard (Lead/Zitat/Hintergrund)"], "Bericht/Protokoll": ["Kurzprotokoll", "Vollprotokoll"], "Rede/Laudatio": ["klassisch", "persönlich", "prägnant"], "Freiform": []}
+GOAL_SUBTYPES_BASE = {"Interviewleitfaden": ["Themenblöcke + Fragen", "Einleitung + Abschluss"], "Konzeptskizze": ["Leitidee", "Zielbild + Maßnahmen", "Roadmap 30/60/90"], "Checkliste": ["Kurz-Check", "Detail-Check"], "SWOT-Analyse": ["Standard 4-Felder", "Mit Gewichtung"], "Benchmark": ["2er-Vergleich", "Mehrfach-Vergleich (3+)", "Tabellarisch"], "Risiko-Check": ["Risikomatrix", "Top-5 Risiken", "Gegenmaßnahmen"], "Ursache–Wirkung": ["Fishbone (Ishikawa)", "5-Why"], "Wirkungsanalyse": ["Inputs-Outputs-Outcomes", "Theory of Change (Kurz)"], "Code-Snippet": ["Python", "JavaScript", "SQL"], "Refactoring-Vorschlag": ["Lesbarkeit", "Performance", "Struktur"], "Testfälle generieren": ["Unit-Tests", "Property-Based", "Edge-Cases"], "Fehleranalyse (Bug Report)": ["Minimalbeispiel", "Hypothesen", "Fix-Idee"], "Dokumentation": ["Docstring", "README-Skizze", "API-Beschreibung"], "Einfach erklären": ["Für Kinder (8+)", "Für Fachfremde", "Für Fortgeschrittene"], "Quiz": ["6 Fragen", "10 Fragen", "Mix Bloom"], "Schritt-für-Schritt-Anleitung": ["5 Schritte", "10 Schritte", "mit Prüfpunkten"], "Glossar": ["10 Begriffe", "20 Begriffe", "mit Beispielen"], "Fallbeispiel": ["Senzario kurz", "Szenario ausführlich"], "Brainstorming-Liste": ["20 Ideen", "5 Kategorien × 5 Ideen"], "Storyboard": ["3-Akt-Struktur", "Kapitel-Outline"], "Titel/Claims": ["10 Titel", "5 Claims + Unterzeile"], "Metaphern/Analogien": ["3 starke Metaphern", "Pro/Contra je Metapher"], "Visualisierungsideen": ["Skizzenansätze", "Infografik-Varianten"], "Newsletter/Beitrag": ["Kurzmeldung", "Standard (Lead/Zitat/Hintergrund)"], "Bericht/Protokoll": ["Kurzprotokoll", "Vollprotokoll"], "Rede/Laudatio": ["klassisch", "persönlich", "prägnant"], "Freiform": []}
 FORMAT_LABEL = {"markdown": "Markdown", "text": "Reiner Text", "json": "JSON", "table": "Tabelle (MD)"}
 GOAL_EXAMPLES = {"praktisch": ["Verständnis klären", "Lösung entwickeln", "Entscheidung vorbereiten", "Prioritäten festlegen", "Nächste Schritte planen"], "emotional": ["Motivation stärken", "Vertrauen aufbauen", "Bedenken ansprechen", "Ermutigung geben", "Feedback verarbeiten"], "sozial": ["Zusammenarbeit verbessern", "Rollen klären", "Anerkennung zeigen", "Gemeinsame Vision entwickeln", "Spannungen abbauen"]}
 
 # =========================
-# Utility (Unverändert)
+# Utility
 # =========================
 def keep_or_default(current, options):
     if not options: return 0
@@ -98,9 +109,20 @@ def _normalize_default_list(val, options):
     else: base = []
     return [o for o in base if o in options]
 
+# NEU 2: "Wähle aus" hier hinzugefügt
 def multiselect_with_free_text(label: str, options: list[str], state_key: str, free_key: str, help: str = "", placeholder: str = "Eigenes hinzufügen … (kommagetrennt)"):
+    """
+    Multiselect + Freitext. Rückgabe: (selected:list, free_items:list, combined:list).
+    """
     default_selected = _normalize_default_list(st.session_state.get(state_key), options)
-    selected = st.multiselect(label, options, default=default_selected, key=state_key, help=help)
+    selected = st.multiselect(
+        label, 
+        options, 
+        default=default_selected, 
+        key=state_key, 
+        help=help,
+        placeholder="Wähle aus"  # <-- HIER GEÄNDERT
+    )
     free_val = st.text_input("+" + label, key=free_key, placeholder=placeholder, help="Eigene Einträge ergänzen (mit Enter bestätigen).")
     free_items = parse_free_list(free_val)
     combined = unique_merge(selected, free_items)
@@ -323,11 +345,14 @@ with col_config:
     with tab_details:
         st.subheader("🧱 Struktur der Antwort")
         default_struct = ["Einleitung mit Zielbild", "Nächste Schritte"]
+        # NEU 2: "Wähle aus" hier hinzugefügt
         st.multiselect("Bausteine auswählen",
                        ["Einleitung mit Zielbild","Vorgehensschritte","Analyse","Beispiele",
                         "Qualitäts-Check","Nächste Schritte","Quellen"],
                        default=default_struct, key="structure",
-                       help="Welche Gliederungsteile sollen erscheinen?")
+                       help="Welche Gliederungsteile sollen erscheinen?",
+                       placeholder="Wähle aus"  # <-- HIER GEÄNDERT
+        )
 
         st.subheader("🔒 Qualitäts/Compliance")
         c1, c2, c3 = st.columns(3)
@@ -433,7 +458,7 @@ def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
     components_html(
         f"""
         <div class="copy-row">
-          <button class.="copy-btn" onclick="{js_click.replace('"', '&quot;')}" key="btn_{key}">{label}</button>
+          <button class="copy-btn" onclick="{js_click.replace('"', '&quot;')}" key="btn_{key}">{label}</button>
           <span>In Zwischenablage kopieren</span>
         </div>
         """,
