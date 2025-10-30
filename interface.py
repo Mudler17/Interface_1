@@ -6,6 +6,7 @@ from textwrap import dedent
 from base64 import b64encode
 import streamlit as st
 from streamlit.components.v1 import html as components_html
+import pandas as pd  # Erforderlich für st.data_editor
 
 st.set_page_config(page_title="🧭 Prompt-Plattform", page_icon="🧭", layout="wide")
 
@@ -32,23 +33,24 @@ st.markdown(BASE_CSS, unsafe_allow_html=True)
 DEFAULTS = {
     "lang": "de", "out_format": "markdown", "length": "mittel",
     "mode": "praktisch",
-    "conversation_goals": [],           # Widget state (Multiselect)
+    "conversation_goals": [],        # Widget state (Multiselect)
     "use_case": "analysieren",
-    "sub_use_cases": [],                # Widget state (Multiselect)
-    "goal": [],                         # Widget state (Multiselect)
-    "goal_subtype": [],                 # Widget state (Multiselect)
+    "sub_use_cases": [],             # Widget state (Multiselect)
+    "goal": [],                      # Widget state (Multiselect)
+    "goal_subtype": [],              # Widget state (Multiselect)
     "audience": "",
     "constraints": "",
     "tone": "sachlich",
     "rigor": "klar",
     "persona": "",
     "context": "",
-    "core_prompt": "",                  # 📝 Anliegen / Kernprompt
+    "core_prompt": "",               # 📝 Anliegen / Kernprompt
     "structure": ["Einleitung mit Zielbild", "Nächste Schritte"],
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
-    "dq_top1": None, "dq_top2": None, "dq_top3": None,
+    # dq_top1/2/3 werden durch dq_prioritized_list ersetzt
+    "dq_prioritized_list": [],
     "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": "",
-    "enable_deep_questions": True       # Modul-Schalter
+    "enable_deep_questions": True    # Modul-Schalter
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -187,6 +189,16 @@ def aggregate_subtypes_for_goals(goals: list[str]) -> list[str]:
             agg.append(x); seen.add(x)
     return agg
 
+def _clear_dependent_fields():
+    """Setzt abhängige Felder zurück, wenn der Use-Case wechselt."""
+    st.session_state.sub_use_cases = DEFAULTS["sub_use_cases"]
+    st.session_state.goal = DEFAULTS["goal"]
+    st.session_state.goal_subtype = DEFAULTS["goal_subtype"]
+    st.session_state.free_subtypes = DEFAULTS["free_subtypes"]
+    st.session_state.free_goals = DEFAULTS["free_goals"]
+    st.session_state.free_goal_subtypes = DEFAULTS["free_goal_subtypes"]
+    # dq_prioritized_list wird automatisch in col_mid neu berechnet
+
 # =========================
 # Deep Questions (3 Vorschläge + Priorisierung)
 # =========================
@@ -232,29 +244,54 @@ def deep_questions(mode: str, goals: list[str]) -> list[str]:
             ]
     return qs
 
-def keep_or_default_sel(current, options):
-    return keep_or_default(current, options)
-
-def prioritize_three(label: str, options: list[str]) -> list[str]:
-    """Drei Prioritäten (Top1..Top3), ohne Duplikate."""
+def prioritize_questions_editor(label: str, options: list[str]) -> list[str]:
+    """
+    Ersetzt prioritize_three durch einen robusten st.data_editor 
+    für die Priorisierung per Drag-and-Drop.
+    """
     if not options:
         st.info("Keine Deep Questions verfügbar.")
         return []
-    st.session_state.setdefault("dq_top1", options[0])
-    st.session_state.setdefault("dq_top2", options[1 if len(options) > 1 else 0])
-    st.session_state.setdefault("dq_top3", options[2 if len(options) > 2 else 0])
 
-    top1 = st.selectbox(f"{label} – Top 1", options, index=keep_or_default_sel(st.session_state.get("dq_top1"), options), key="dq_top1")
-    opts2 = [o for o in options if o != top1] or options
-    top2_default = st.session_state.get("dq_top2")
-    if top2_default == top1: top2_default = opts2[0]
-    top2 = st.selectbox(f"{label} – Top 2", opts2, index=keep_or_default_sel(top2_default, opts2), key="dq_top2")
-    opts3 = [o for o in options if o not in (top1, top2)] or options
-    top3_default = st.session_state.get("dq_top3")
-    if top3_default in (top1, top2): top3_default = opts3[0]
-    top3 = st.selectbox(f"{label} – Top 3", opts3, index=keep_or_default_sel(top3_default, opts3), key="dq_top3")
+    # Eindeutiger State-Key für den DataFrame, um die Sortierung zu speichern
+    df_state_key = "dq_editor_df"
+    
+    # Prüfen, ob sich die Optionen geändert haben (z.B. Modus-Wechsel)
+    current_option_set = set(options)
+    if df_state_key not in st.session_state:
+        # Initialisierung
+        st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
+    else:
+        # Abgleich: Haben sich die Fragen geändert?
+        try:
+            stored_option_set = set(st.session_state[df_state_key]["Frage"])
+            if current_option_set != stored_option_set:
+                st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
+        except KeyError: # Falls DataFrame-Struktur korrupt ist
+             st.session_state[df_state_key] = pd.DataFrame({"Frage": options})
 
-    return [top1, top2, top3]
+
+    st.caption(f"{label} (Top 3, Reihenfolge per Drag-and-Drop ändern)")
+    
+    edited_df = st.data_editor(
+        st.session_state[df_state_key],
+        key="dq_editor_widget", # Key für das Widget selbst
+        column_config={
+            "Frage": st.column_config.TextColumn(
+                "Frage", 
+                disabled=True, # Text der Frage nicht editierbar
+                width="large"
+            )
+        },
+        hide_index=True,
+        num_rows="dynamic", # Aktiviert Drag-and-Drop
+    )
+    
+    # Speichere den sortierten DataFrame zurück in den State
+    st.session_state[df_state_key] = edited_df
+
+    # Gebe die Top 3 der (jetzt sortierten) Liste zurück
+    return list(edited_df["Frage"].head(3))
 
 # =========================
 # Sidebar (inkl. Schalter für Deep-Questions)
@@ -304,6 +341,12 @@ with st.sidebar:
         for k, v in DEFAULTS.items(): st.session_state[k] = v
         for k in ["conversation_goals_combined","sub_use_cases_combined","goals_combined","goal_subtypes_combined"]:
             st.session_state[k] = []
+        # Clear data editor state
+        if "dq_editor_df" in st.session_state:
+            del st.session_state["dq_editor_df"]
+        if "dq_editor_widget" in st.session_state:
+            del st.session_state["dq_editor_widget"]
+            
     st.button("🔄 Zurücksetzen", use_container_width=True, on_click=_reset)
 
 # =========
@@ -333,7 +376,9 @@ with col_left:
     st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
              index=keep_or_default(st.session_state.use_case, list(UC_LABEL.keys())),
              key="use_case", format_func=lambda v: UC_LABEL[v],
-             help="Oberkategorie für den Prompt.")
+             help="Oberkategorie für den Prompt.",
+             on_change=_clear_dependent_fields  # <-- VERBESSERUNG
+    )
 
     base_subtypes = UC_SUBTYPES_BASE.get(st.session_state.use_case, [])
     _sel_subtypes, _free_subtypes, subtypes_combined = multiselect_with_free_text(
@@ -411,13 +456,22 @@ with col_mid:
 
     st.markdown("---")
     if st.session_state.enable_deep_questions:
-        st.subheader("🪄 Deep Questions (3 Vorschläge + Priorität)")
-        dq_list = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
-        prioritized = prioritize_three("Beispielfragen", dq_list)
-        if prioritized:
-            st.caption("Priorisierte Fragen:")
-            for i, q in enumerate(prioritized, 1):
+        st.subheader("🪄 Deep Questions (Priorisierung)")
+        # Generiere die Optionen basierend auf dem aktuellen Modus/Zielen
+        dq_list_options = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
+        
+        # Rufe die neue Editor-Funktion auf
+        prioritized_list = prioritize_questions_editor("Fragen priorisieren", dq_list_options)
+        
+        # Speichere die Top 3 (oder weniger) im session_state für build_prompt und JSON
+        st.session_state["dq_prioritized_list"] = prioritized_list 
+        
+        if prioritized_list:
+            st.caption("Priorisierte Fragen (Top 3):")
+            for i, q in enumerate(prioritized_list, 1):
                 st.write(f"{i}. {q}")
+        # (Info, falls keine Fragen da, wird in der Funktion selbst angezeigt)
+
     else:
         st.info("Deep-Questions-Modul ist deaktiviert. Aktiviere es in der Sidebar.")
 
@@ -463,14 +517,15 @@ def build_prompt() -> str:
         "sozial":    "Modus: SOZIAL – berücksichtige Beziehungen, Rollen, Zugehörigkeit."
     }[st.session_state.mode]
 
-    # Deep Questions optional
+    # Deep Questions optional (VERBESSERT)
     dq_block = ""
     if st.session_state.enable_deep_questions:
-        dq = [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
-        dq = [x for x in dq if x]
-        if not dq:
-            dq = deep_questions(st.session_state.mode, goals_combined)
-        dq_block = "\n\nDeep Questions (priorisiert):\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
+        dq = st.session_state.get("dq_prioritized_list", []) # Holt die sortierte Top-3 Liste
+        if not dq: # Fallback, falls die Liste leer ist
+            dq = deep_questions(st.session_state.mode, goals_combined)[:3] # Nimm die Top 3 als default
+        
+        if dq: # Nur anzeigen, wenn Fragen vorhanden sind
+            dq_block = "\n\nDeep Questions (priorisiert):\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
 
     base_prompt = dedent(f"""
     {mode_line}
@@ -497,13 +552,30 @@ def build_prompt() -> str:
 
     return base_prompt
 
-# ---------- Copy-to-clipboard helper ----------
+# ---------- Copy-to-clipboard helper (VERBESSERT mit Feedback) ----------
 def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
     enc = b64encode(text.encode("utf-8")).decode("ascii")
+    success_label = "✅ Kopiert!"
+    
+    # Das onclick-Event übergibt 'this' (den Button selbst) an die Funktion
+    js_click = f"""
+    (function(btn){{
+        const t = atob('{enc}'); 
+        navigator.clipboard.writeText(t); 
+        const old_label = btn.innerText;
+        btn.innerText = '{success_label}'; 
+        btn.disabled = true;
+        setTimeout(function(){{ 
+            btn.innerText = old_label; 
+            btn.disabled = false;
+        }}, 1500);
+    }})(this)
+    """
+    
     components_html(
         f"""
         <div class="copy-row">
-          <button class="copy-btn" onclick="(function(){{const t = atob('{enc}'); navigator.clipboard.writeText(t);}})()">{label}</button>
+          <button class="copy-btn" onclick="{js_click.replace('"', '&quot;')}" key="btn_{key}">{label}</button>
           <span>In Zwischenablage kopieren</span>
         </div>
         """,
@@ -557,7 +629,8 @@ with col_right:
             "context": st.session_state.context,
             "constraints": st.session_state.constraints,
             "deep_questions": {
-                "prioritized": [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")] if st.session_state.enable_deep_questions else []
+                # VERBESSERT: Nutzt die neue State-Variable
+                "prioritized": st.session_state.get("dq_prioritized_list", []) if st.session_state.enable_deep_questions else []
             },
             "rendered_prompt": prompt_text
         }
