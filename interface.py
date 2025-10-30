@@ -1,46 +1,28 @@
-# app.py — Prompt-Plattform (Multiselect+Freitext in Dropdowns, Deep Questions mit Priorisierung, keine Button-Färbung)
+# app.py — Prompt-Plattform (Copy-Buttons, keine grünen Highlights für Inputs/Checkboxen)
 from __future__ import annotations
 import json
 from datetime import datetime
 from textwrap import dedent
+from base64 import b64encode
 import streamlit as st
+from streamlit.components.v1 import html as components_html
 
 st.set_page_config(page_title="🧭 Prompt-Plattform", page_icon="🧭", layout="wide")
 
 # =========================
-# Styles (ohne Button-Färbung!)
+# (Minimal) Styles – ohne Input/Checkbox-Färbungen
 # =========================
 BASE_CSS = """
 <style>
-/* Bearbeitete Felder: dezente, blassgrüne Hinterlegung */
-.optfield {
-  border-radius: 8px;
-  padding: 0.45rem 0.6rem;
-  background-color: #f6fdf6;
-  border: 1px solid #cde6cd;
-  margin-bottom: 0.25rem;
-}
-.optfield textarea, .optfield input, .optfield select { background-color: #f6fdf6 !important; }
-
-/* Checkbox: NUR Kästchen grünlich wenn checked (keine Button-Färbungen) */
-div[data-testid="stCheckbox"] > label > div[role="checkbox"][aria-checked="true"] {
-  background-color: #e8f8ee !important;
-  border: 1px solid #cde6cd !important;
-  box-shadow: 0 0 0 3px rgba(205,230,205,0.35);
-}
-div[role="checkbox"][aria-checked="true"] {
-  background-color: #e8f8ee !important;
-  border: 1px solid #cde6cd !important;
-}
-
-/* Modus-Badge (neutral, ohne Button-Färbung) */
+/* Neutrales Modus-Badge (keine Button-Färbung) */
 .mode-badge {
   display:inline-flex; gap:.5rem; align-items:center;
   padding:.35rem .6rem; border-radius:999px; font-weight:600; font-size:.9rem;
-  border:1px solid #999;
-  background: #f5f5f5;
-  color:#222;
+  border:1px solid #999; background:#f5f5f5; color:#222;
 }
+.copy-row { display:flex; gap:.5rem; align-items:center; margin:.25rem 0 .5rem 0; }
+.copy-btn { padding:.35rem .6rem; border:1px solid #999; background:#fff; border-radius:.5rem; cursor:pointer; }
+.copy-btn:hover { background:#f7f7f7; }
 </style>
 """
 st.markdown(BASE_CSS, unsafe_allow_html=True)
@@ -51,11 +33,11 @@ st.markdown(BASE_CSS, unsafe_allow_html=True)
 DEFAULTS = {
     "lang": "de", "out_format": "markdown", "length": "mittel",
     "mode": "praktisch",
-    "conversation_goals": [],           # Liste (statt Einzel-String)
+    "conversation_goals": [],           # Widget state (Multiselect)
     "use_case": "analysieren",
-    "sub_use_cases": [],                # Liste (Multiselect)
-    "goal": [],                         # Liste (Multiselect)
-    "goal_subtype": [],                 # Liste (Multiselect)
+    "sub_use_cases": [],                # Widget state (Multiselect)
+    "goal": [],                         # Widget state (Multiselect)
+    "goal_subtype": [],                 # Widget state (Multiselect)
     "audience": "",
     "constraints": "",
     "tone": "sachlich",
@@ -66,7 +48,7 @@ DEFAULTS = {
     "qc_facts": False, "qc_bias": False, "qc_dp": False,
     # Deep Questions Auswahl:
     "dq_top1": None, "dq_top2": None, "dq_top3": None,
-    # Freitext-Inputs (temporär):
+    # Freitext-Inputs (Widgets):
     "free_subtypes": "", "free_goals": "", "free_goal_subtypes": "", "free_conv_goals": ""
 }
 for k, v in DEFAULTS.items():
@@ -188,7 +170,6 @@ def keep_or_default(current, options):
     return 0
 
 def parse_free_list(text: str) -> list[str]:
-    # kommagetrennt oder zeilenweise
     if not text: return []
     raw = [t.strip() for t in (",".join(text.splitlines())).split(",")]
     return [t for t in raw if t]
@@ -202,21 +183,17 @@ def unique_merge(base: list[str], extra: list[str]) -> list[str]:
     return merged
 
 def multiselect_with_free_text(label: str, options: list[str], state_key: str, free_key: str, help: str = "", placeholder: str = "Eigenes hinzufügen … (kommagetrennt)"):
-    """Zeigt Multiselect + Free-Text-Feld. Rückgabe: Liste (vereint, eindeutig)."""
-    current = st.session_state.get(state_key, [])
-    # Multiselect
-    selected = st.multiselect(label, options, default=[o for o in current if o in options], key=state_key, help=help)
-    # Free text
+    """Zeigt Multiselect + Free-Text-Feld. Rückgabe: (selected:list, free_items:list, combined:list)."""
+    selected = st.multiselect(label, options, default=[o for o in st.session_state.get(state_key, []) if o in options], key=state_key, help=help)
     free_val = st.text_input("+" + label, key=free_key, placeholder=placeholder, help="Eigene Einträge ergänzen (mit Enter bestätigen).")
     free_items = parse_free_list(free_val)
     combined = unique_merge(selected, free_items)
-    return combined
+    return selected, free_items, combined
 
 def aggregate_subtypes_for_goals(goals: list[str]) -> list[str]:
     pool = []
     for g in goals:
         pool.extend(GOAL_SUBTYPES_BASE.get(g, []))
-    # Eindeutig + sortiert nach Auftreten
     seen, agg = set(), []
     for x in pool:
         if x not in seen:
@@ -273,19 +250,16 @@ def prioritize_three(label: str, options: list[str]) -> list[str]:
     if not options:
         st.info("Keine Deep Questions verfügbar.")
         return []
-    # Default-Vorauswahl (falls leer):
+    # Defaults setzen, falls leer:
     st.session_state.setdefault("dq_top1", options[0])
     st.session_state.setdefault("dq_top2", options[1 if len(options) > 1 else 0])
     st.session_state.setdefault("dq_top3", options[2 if len(options) > 2 else 0])
 
-    # Top 1
     top1 = st.selectbox(f"{label} – Top 1", options, index=keep_or_default(st.session_state.get("dq_top1"), options), key="dq_top1")
-    # Top 2: ohne Top1
     opts2 = [o for o in options if o != top1] or options
     top2_default = st.session_state.get("dq_top2")
     if top2_default == top1: top2_default = opts2[0]
     top2 = st.selectbox(f"{label} – Top 2", opts2, index=keep_or_default(top2_default, opts2), key="dq_top2")
-    # Top 3: ohne Top1/Top2
     opts3 = [o for o in options if o not in (top1, top2)] or options
     top3_default = st.session_state.get("dq_top3")
     if top3_default in (top1, top2): top3_default = opts3[0]
@@ -322,21 +296,22 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🎯 Konversationsziele")
-    # Beispiele je Modus — als Multiselect mit Freitext-Ergänzung
     mode_examples = GOAL_EXAMPLES.get(st.session_state.mode, [])
-    conv_goals = multiselect_with_free_text(
+    _sel_conv, _free_conv, conv_goals_combined = multiselect_with_free_text(
         "Typische Ziele (Mehrfachauswahl)",
         mode_examples,
         state_key="conversation_goals",
         free_key="free_conv_goals",
         help="Wähle mehrere Ziele und/oder ergänze eigene."
     )
-    st.session_state.conversation_goals = conv_goals
+    st.session_state["conversation_goals_combined"] = conv_goals_combined
 
     st.caption("⚠️ Keine personenbezogenen oder internen Unternehmensdaten eingeben.")
 
     def _reset():
         for k, v in DEFAULTS.items(): st.session_state[k] = v
+        for k in ["conversation_goals_combined","sub_use_cases_combined","goals_combined","goal_subtypes_combined"]:
+            st.session_state[k] = []
     st.button("🔄 Zurücksetzen", use_container_width=True, on_click=_reset)
 
 # =========
@@ -349,100 +324,79 @@ col_left, col_mid, col_right = st.columns([1.05, 1.6, 1.35], gap="large")
 # =========================
 with col_left:
     st.subheader("🧩 Use-Case")
-    # Use-Case bleibt Radio (Hauptschalter). Dropdown-Vorgabe bezog sich auf Selects → hier ok.
     st.radio("Was möchtest du tun?", list(UC_LABEL.keys()),
              index=keep_or_default(st.session_state.use_case, list(UC_LABEL.keys())),
              key="use_case", format_func=lambda v: UC_LABEL[v],
              help="Oberkategorie für den Prompt.")
 
-    # Untertypen (Mehrfach + Freitext)
     base_subtypes = UC_SUBTYPES_BASE.get(st.session_state.use_case, [])
-    subtypes = multiselect_with_free_text(
+    _sel_subtypes, _free_subtypes, subtypes_combined = multiselect_with_free_text(
         "Untertypen (Mehrfachauswahl)",
         base_subtypes,
         state_key="sub_use_cases",
         free_key="free_subtypes",
         help="Feinere Auswahl passend zum Use-Case."
     )
-    st.session_state.sub_use_cases = subtypes
+    st.session_state["sub_use_cases_combined"] = subtypes_combined
 
     st.markdown("---")
     st.subheader("🎯 Ziel / Output (Mehrfach)")
     goal_options = GOALS_BY_UC.get(st.session_state.use_case, ["Freiform"])
-    selected_goals = multiselect_with_free_text(
+    _sel_goals, _free_goals, goals_combined = multiselect_with_free_text(
         "Ziele wählen",
         goal_options,
         state_key="goal",
         free_key="free_goals",
         help="Mehrere Zielarten kombinieren."
     )
-    st.session_state.goal = selected_goals
+    st.session_state["goals_combined"] = goals_combined
 
-    # Ziel-Untertypen aggregiert über alle gewählten Ziele
-    aggregated_subtypes = aggregate_subtypes_for_goals(st.session_state.goal)
-    selected_goal_subtypes = multiselect_with_free_text(
+    aggregated_subtypes = aggregate_subtypes_for_goals(goals_combined)
+    _sel_gsub, _free_gsub, goal_subtypes_combined = multiselect_with_free_text(
         "Ziel-Untertypen",
         aggregated_subtypes,
         state_key="goal_subtype",
         free_key="free_goal_subtypes",
         help="Feinvarianten zum Ziel (optional)."
     )
-    st.session_state.goal_subtype = selected_goal_subtypes
+    st.session_state["goal_subtypes_combined"] = goal_subtypes_combined
 
     st.markdown("---")
 
-    # Optionale Felder (Hintergrund nur bei Inhalt)
-    if st.session_state.audience: st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.text_input("Zielgruppe (optional)", key="audience",
                   placeholder="z. B. Leitung, Team, Öffentlichkeit",
                   help="Für wen ist das Ergebnis gedacht?")
-    if st.session_state.audience: st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.session_state.constraints: st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.text_area("Rahmen / Muss-Kriterien (optional)", key="constraints",
                  placeholder="Stichworte, Bullets …", height=70,
                  help="Voraussetzungen, Grenzen, Positivliste etc.")
-    if st.session_state.constraints: st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("🎚️ Stil & Ton")
-    if st.session_state.get("tone","sachlich") != "sachlich": st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.select_slider("Tonfall", options=["sehr sachlich","sachlich","neutral","lebendig","kreativ"],
                      value=st.session_state.get("tone","sachlich"), key="tone",
                      help="Stilistik der Antwort.")
-    if st.session_state.get("tone","sachlich") != "sachlich": st.markdown('</div>', unsafe_allow_html=True)
-
-    if st.session_state.get("rigor","klar") != "klar": st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.select_slider("Strenge/Struktur", options=["locker","mittel","klar","sehr klar"],
                      value=st.session_state.get("rigor","klar"), key="rigor",
                      help="Grad der Strukturierung.")
-    if st.session_state.get("rigor","klar") != "klar": st.markdown('</div>', unsafe_allow_html=True)
-
-    if st.session_state.persona: st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.text_input("Rolle (optional)", key="persona",
                   placeholder="z. B. Qualitätsauditor:in", help="Rolle/Persona der KI.")
-    if st.session_state.persona: st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # Mitte (Kontext, Struktur, Qualität, Deep Questions)
 # =========================
 with col_mid:
     st.subheader("🖼️ Kontext")
-    if st.session_state.context: st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.text_area("Kurzkontext (2–4 Bullets)", key="context",
                  placeholder="• Thema / Problem\n• Ziel & Medium\n• Rahmenbedingungen\n• Quellen/Lage",
                  height=120, help="Stichpunkte reichen.")
-    if st.session_state.context: st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("🧱 Struktur")
     default_struct = ["Einleitung mit Zielbild", "Nächste Schritte"]
-    cur_struct = st.session_state.get("structure", default_struct)
-    if sorted(cur_struct) != sorted(default_struct): st.markdown('<div class="optfield">', unsafe_allow_html=True)
     st.multiselect("Bausteine auswählen",
                    ["Einleitung mit Zielbild","Vorgehensschritte","Analyse","Beispiele",
                     "Qualitäts-Check","Nächste Schritte","Quellen"],
                    default=default_struct, key="structure",
                    help="Welche Gliederungsteile sollen erscheinen?")
-    if sorted(cur_struct) != sorted(default_struct): st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("🔒 Qualitäts/Compliance")
     st.checkbox("Faktencheck", key="qc_facts", help="Unsichere Stellen markieren.")
@@ -451,9 +405,8 @@ with col_mid:
 
     st.markdown("---")
     st.subheader("🪄 Deep Questions (3 Vorschläge + Priorität)")
-    dq_list = deep_questions(st.session_state.mode, st.session_state.goal)
+    dq_list = deep_questions(st.session_state.mode, st.session_state.get("goals_combined", []))
     prioritized = prioritize_three("Beispielfragen", dq_list)
-    # Anzeige der priorisierten Reihenfolge (informativ)
     if prioritized:
         st.caption("Priorisierte Fragen:")
         for i, q in enumerate(prioritized, 1):
@@ -462,7 +415,7 @@ with col_mid:
 # =========================
 # Prompt-Erzeugung
 # =========================
-def build_prompt(include_iteration: bool = False) -> str:
+def build_prompt() -> str:
     lang_hint = "deutsch" if st.session_state.lang == "de" else "englisch"
     today = datetime.now().strftime("%Y-%m-%d")
     of_hint = {
@@ -472,38 +425,40 @@ def build_prompt(include_iteration: bool = False) -> str:
         "table": "Antworte als Markdown-Tabelle."
     }[st.session_state.out_format]
 
-    # Struktur
+    subtypes_combined = st.session_state.get("sub_use_cases_combined", st.session_state.sub_use_cases)
+    goals_combined = st.session_state.get("goals_combined", st.session_state.goal)
+    goal_subtypes_combined = st.session_state.get("goal_subtypes_combined", st.session_state.goal_subtype)
+    conv_goals_combined = st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)
+
     structure_list = st.session_state.structure or []
     structure_lines = "\n".join(f"- {s}" for s in structure_list) if structure_list else "- (freie Struktur)"
 
-    # Qualität
     qc_lines = []
     if st.session_state.qc_facts: qc_lines.append("• Prüfe Aussagen auf Plausibilität.")
     if st.session_state.qc_bias:  qc_lines.append("• Weisen auf mögliche Verzerrungen hin.")
     if st.session_state.qc_dp:    qc_lines.append("• Keine personenbezogenen Daten.")
     qc_block = "\n".join(qc_lines) if qc_lines else "• (keine Prüfhinweise)"
 
-    # Sammelfelder
     use_case_label = UC_LABEL[st.session_state.use_case]
-    sub_uc_line = f"Untertypen: {', '.join(st.session_state.sub_use_cases)}\n" if st.session_state.sub_use_cases else ""
-    goals_line = f"Ziele/Outputs: {', '.join(st.session_state.goal)}\n" if st.session_state.goal else ""
-    subgoals_line = f"Ziel-Untertypen: {', '.join(st.session_state.goal_subtype)}\n" if st.session_state.goal_subtype else ""
-    conv_goals_line = f"Konversationsziele: {', '.join(st.session_state.conversation_goals)}\n" if st.session_state.conversation_goals else ""
+    sub_uc_line = f"Untertypen: {', '.join(subtypes_combined)}\n" if subtypes_combined else ""
+    goals_line = f"Ziele/Outputs: {', '.join(goals_combined)}\n" if goals_combined else ""
+    subgoals_line = f"Ziel-Untertypen: {', '.join(goal_subtypes_combined)}\n" if goal_subtypes_combined else ""
+    conv_goals_line = f"Konversationsziele: {', '.join(conv_goals_combined)}\n" if conv_goals_combined else ""
     persona_line = f"Rolle: {st.session_state.persona}\n" if st.session_state.persona else ""
     audience_line = f"Zielgruppe: {st.session_state.audience}\n" if st.session_state.audience else ""
     constraints_line = f"Rahmen/Muss-Kriterien:\n{st.session_state.constraints.strip()}\n\n" if st.session_state.constraints.strip() else ""
 
-    # Mode-Hinweis
     mode_line = {
         "praktisch": "Modus: PRAKTISCH – fokussiere auf konkrete Schritte, Klarheit, Entscheidbarkeit.",
         "emotional": "Modus: EMOTIONAL – berücksichtige Gefühle, Motivation, Bedenken.",
         "sozial":    "Modus: SOZIAL – berücksichtige Beziehungen, Rollen, Zugehörigkeit."
     }[st.session_state.mode]
 
-    # Deep Questions (priorisiert)
     dq = [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
     dq = [x for x in dq if x]
-    dq_block = "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq)) if dq else "\n".join(f"{i+1}. {q}" for i, q in enumerate(deep_questions(st.session_state.mode, st.session_state.goal)))
+    if not dq:
+        dq = deep_questions(st.session_state.mode, goals_combined)
+    dq_block = "\n".join(f"{i+1}. {q}" for i, q in enumerate(dq))
 
     base_prompt = dedent(f"""
     {mode_line}
@@ -529,8 +484,21 @@ def build_prompt(include_iteration: bool = False) -> str:
 
     return base_prompt
 
+# ---------- Copy-to-clipboard helper ----------
+def render_copy_button(text: str, key: str, label: str = "📋 Kopieren"):
+    enc = b64encode(text.encode("utf-8")).decode("ascii")
+    components_html(
+        f"""
+        <div class="copy-row">
+          <button class="copy-btn" onclick="(function(){{const t = atob('{enc}'); navigator.clipboard.writeText(t);}})()">{label}</button>
+          <span>In Zwischenablage kopieren</span>
+        </div>
+        """,
+        height=40,
+    )
+
 # =========================
-# Rechte Spalte (Vorschau/Export)
+# Rechte Spalte (Vorschau/Export + Kopieren)
 # =========================
 with col_right:
     st.subheader("👁️ Vorschau")
@@ -540,9 +508,11 @@ with col_right:
     tabs = st.tabs(["🔤 Lesbare Version", "🧾 JSON"])
     with tabs[0]:
         st.code(prompt_text, language="markdown")
+        render_copy_button(prompt_text, key="copy_md", label="📋 Prompt kopieren")
         st.download_button("⬇️ Als Markdown speichern",
                            data=prompt_text.encode("utf-8"),
                            file_name=f"{auto_filename}.md", mime="text/markdown")
+
     with tabs[1]:
         schema = {
             "protocol": "prompt.cockpit/1.2",
@@ -556,9 +526,9 @@ with col_right:
             "profile": {
                 "use_case": st.session_state.use_case,
                 "use_case_label": UC_LABEL[st.session_state.use_case],
-                "sub_use_cases": st.session_state.sub_use_cases,
-                "goals": st.session_state.goal,
-                "goal_subtypes": st.session_state.goal_subtype,
+                "sub_use_cases": st.session_state.get("sub_use_cases_combined", st.session_state.sub_use_cases),
+                "goals": st.session_state.get("goals_combined", st.session_state.goal),
+                "goal_subtypes": st.session_state.get("goal_subtypes_combined", st.session_state.goal_subtype),
                 "persona": st.session_state.persona or None,
                 "audience": st.session_state.audience or None,
                 "structure": st.session_state.structure,
@@ -567,7 +537,7 @@ with col_right:
                     "bias": st.session_state.qc_bias,
                     "data_protection": st.session_state.qc_dp
                 },
-                "conversation_goals": st.session_state.conversation_goals
+                "conversation_goals": st.session_state.get("conversation_goals_combined", st.session_state.conversation_goals)
             },
             "deep_questions": {
                 "prioritized": [st.session_state.get("dq_top1"), st.session_state.get("dq_top2"), st.session_state.get("dq_top3")]
@@ -576,7 +546,9 @@ with col_right:
             "constraints": st.session_state.constraints,
             "prompt": prompt_text
         }
+        json_text = json.dumps(schema, ensure_ascii=False, indent=2)
         st.json(schema, expanded=False)
+        render_copy_button(json_text, key="copy_json", label="📋 JSON kopieren")
         st.download_button("⬇️ JSON speichern",
-                           data=json.dumps(schema, ensure_ascii=False, indent=2).encode("utf-8"),
+                           data=json_text.encode("utf-8"),
                            file_name=f"{auto_filename}.json", mime="application/json")
